@@ -30,8 +30,8 @@ use splicefeed_core::storage::{CachedFile, EpisodeRecord, Storage};
 
 pub use splicefeed_core::config::{ArtworkOverride, Config, ConfigError, Retention, ShowConfig};
 pub use splicefeed_core::domain::{
-    AudioSource, EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ListenKey, Mode, ShowMeta,
-    ShowSlug, redacted,
+    ApiKey, AudioSource, EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ListenKey, Mode,
+    ShowMeta, ShowSlug, redacted,
 };
 pub use splicefeed_core::download::DownloadError;
 pub use splicefeed_core::ipc;

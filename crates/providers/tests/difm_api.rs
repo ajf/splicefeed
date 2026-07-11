@@ -194,6 +194,46 @@ async fn resolve_audio_without_asset_fails_with_hint_and_sends_key() {
 }
 
 #[tokio::test]
+async fn resolve_audio_prefers_api_key_when_configured() {
+    let server = MockServer::start().await;
+    let tmp = tempdir();
+    let body = r#"{"slug": "162", "tracks": [
+        {"length": 7200, "content": {"assets": [{"url": "//prem2.di.fm/shows/mr/ep162.mp4"}]}}
+    ]}"#;
+    // Only answers when the member api_key is the query credential.
+    Mock::given(method("GET"))
+        .and(path("/shows/melodik-revolution/episodes/162"))
+        .and(query_param("api_key", "member-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(&server)
+        .await;
+
+    let provider = DifmProvider::builder(ListenKey::new("test-key".into()))
+        .api_key(splicefeed_core::domain::ApiKey::new("member-key".into()))
+        .base_url(server.uri().parse().expect("mock uri parses"))
+        .quarantine_dir(&tmp)
+        .build()
+        .expect("provider builds");
+    let audio = provider
+        .resolve_audio(
+            &slug("melodik-revolution"),
+            &"162".parse().expect("valid id"),
+        )
+        .await
+        .expect("resolves via api_key");
+
+    assert_eq!(audio.url.host_str(), Some("prem2.di.fm"));
+    // The stream host still gets the listen key.
+    assert!(
+        audio
+            .url
+            .query()
+            .is_some_and(|q| q.contains("listen_key=test-key"))
+    );
+    cleanup(tmp);
+}
+
+#[tokio::test]
 async fn resolve_audio_appends_listen_key_to_asset() {
     let server = MockServer::start().await;
     let tmp = tempdir();

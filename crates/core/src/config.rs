@@ -17,10 +17,12 @@ use figment::providers::{Format, Toml};
 use serde::Deserialize;
 use url::Url;
 
-use crate::domain::{ListenKey, ShowSlug};
+use crate::domain::{ApiKey, ListenKey, ShowSlug};
 
 /// Name of the env var holding the DI.FM premium listen key.
 pub const DIFM_LISTEN_KEY_ENV: &str = "DIFM_LISTEN_KEY";
+/// Name of the env var holding the AudioAddict member API key.
+pub const DIFM_API_KEY_ENV: &str = "DIFM_API_KEY";
 /// Name of the env var overriding the config file path.
 pub const CONFIG_PATH_ENV: &str = "SPLICEFEED_CONFIG";
 
@@ -104,6 +106,13 @@ impl Config {
                 .get_or_insert_with(DifmAuth::default)
                 .listen_key = Some(ListenKey::new(key));
         }
+        if let Ok(key) = std::env::var(DIFM_API_KEY_ENV) {
+            config
+                .auth
+                .difm
+                .get_or_insert_with(DifmAuth::default)
+                .api_key = Some(ApiKey::new(key));
+        }
         if config.data_dir.is_none() {
             config.data_dir = Some(default_data_dir()?);
         }
@@ -176,6 +185,13 @@ impl Config {
     /// The DI.FM premium listen key, if configured.
     pub fn difm_listen_key(&self) -> Option<&ListenKey> {
         self.auth.difm.as_ref()?.listen_key.as_ref()
+    }
+
+    /// The AudioAddict member API key, if configured. Required for episode
+    /// audio: the listen key alone does not unlock API content assets
+    /// (confirmed empirically 2026-07-11).
+    pub fn difm_api_key(&self) -> Option<&ApiKey> {
+        self.auth.difm.as_ref()?.api_key.as_ref()
     }
 
     /// Override for the AudioAddict API base URL — for sibling networks
@@ -310,6 +326,8 @@ struct Auth {
 struct DifmAuth {
     #[serde(default)]
     listen_key: Option<ListenKey>,
+    #[serde(default)]
+    api_key: Option<ApiKey>,
     #[serde(default)]
     base_url: Option<Url>,
 }

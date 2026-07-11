@@ -12,12 +12,18 @@
 //! shared platform behind DI.FM, RadioTunes, JazzRadio, RockRadio, and
 //! ClassicalRadio, so `di` in the base path is the network name.
 //!
-//! Unauthenticated, `tracks[].content` is empty and `tracks[].asset_url`
-//! points at artwork. The authenticated audio-asset shape is UNCONFIRMED:
-//! [`DifmProvider::resolve_audio`] sends the listen key as a `listen_key`
-//! query parameter (the historically known mechanism) and fails loudly
-//! with a hint when no audio asset appears. `splicefeed probe` is the way
-//! to verify against the live API.
+//! Without member auth, `tracks[].content` is empty and
+//! `tracks[].asset_url` points at artwork. Confirmed empirically
+//! 2026-07-11 with a real premium listen key: the listen key does **not**
+//! unlock content assets in any placement (`?listen_key=`, HTTP basic in
+//! every arrangement, `X-Listen-Key` header, nor on `GET tracks/<id>`) —
+//! it authorizes premium *stream hosts*, not the API. `?api_key=` is a
+//! recognized parameter (bogus values get 403 "Invalid API Key") and takes
+//! the member API key, a separate credential. [`DifmProvider::resolve_audio`]
+//! sends `?api_key=` when one is configured, still appends the listen key
+//! to resolved audio URLs for the stream host, and fails loudly with a
+//! hint otherwise. The authenticated asset *shape* remains UNCONFIRMED
+//! until probed with a real member API key.
 
 mod v1;
 
@@ -26,7 +32,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use splicefeed_core::config::Config;
-use splicefeed_core::domain::{AudioSource, EpisodeId, EpisodeMeta, ListenKey, ShowMeta, ShowSlug};
+use splicefeed_core::domain::{
+    ApiKey, AudioSource, EpisodeId, EpisodeMeta, ListenKey, ShowMeta, ShowSlug,
+};
 use url::Url;
 
 use crate::quarantine::Quarantine;
@@ -46,6 +54,7 @@ pub struct DifmProvider {
     http: reqwest::Client,
     base_url: Url,
     listen_key: ListenKey,
+    api_key: Option<ApiKey>,
     quarantine: Quarantine,
     per_page: u32,
 }
@@ -53,12 +62,20 @@ pub struct DifmProvider {
 /// Builder for [`DifmProvider`].
 pub struct DifmProviderBuilder {
     listen_key: ListenKey,
+    api_key: Option<ApiKey>,
     base_url: Option<Url>,
     quarantine_dir: Option<PathBuf>,
     per_page: Option<u32>,
 }
 
 impl DifmProviderBuilder {
+    /// The member API key — required for episode audio resolution (the
+    /// listen key alone does not unlock API content assets).
+    pub fn api_key(mut self, api_key: ApiKey) -> Self {
+        self.api_key = Some(api_key);
+        self
+    }
+
     /// Override the API base URL (tests point this at a mock server).
     pub fn base_url(mut self, base_url: Url) -> Self {
         self.base_url = Some(base_url);
@@ -95,6 +112,7 @@ impl DifmProviderBuilder {
             http,
             base_url,
             listen_key: self.listen_key,
+            api_key: self.api_key,
             quarantine: Quarantine::new(
                 self.quarantine_dir
                     .unwrap_or_else(|| PathBuf::from("quarantine").join("difm")),
@@ -109,6 +127,7 @@ impl DifmProvider {
     pub fn builder(listen_key: ListenKey) -> DifmProviderBuilder {
         DifmProviderBuilder {
             listen_key,
+            api_key: None,
             base_url: None,
             quarantine_dir: None,
             per_page: None,
@@ -223,12 +242,16 @@ impl Provider for DifmProvider {
         show: &ShowSlug,
         episode: &EpisodeId,
     ) -> Result<AudioSource, ProviderError> {
-        // UNCONFIRMED auth mechanism: listen_key as a query parameter on
-        // the single-episode endpoint. `splicefeed probe` verifies this
-        // against the live API; failures land in NoAudioAsset with a hint.
+        // Content assets require the member API key (see module docs);
+        // the legacy listen_key parameter is kept as a fallback when no
+        // API key is configured, but is not expected to work.
+        let query: [(&str, &str); 1] = match &self.api_key {
+            Some(api_key) => [("api_key", api_key.expose())],
+            None => [("listen_key", self.listen_key.expose())],
+        };
         let url = self.endpoint(
             &["shows", show.as_str(), "episodes", episode.as_str()],
-            &[("listen_key", self.listen_key.expose())],
+            &query,
         )?;
         let payload = self
             .get_text(url)
@@ -237,12 +260,17 @@ impl Provider for DifmProvider {
         let wire: v1::Episode = self.parse(&payload, &format!("episode-{show}-{episode}"))?;
 
         let Some(mut audio_url) = wire.audio_url() else {
+            let hint = if self.api_key.is_some() {
+                "the response held no audio asset despite an api_key; either the key is \
+                 stale/wrong or the upstream schema drifted — run `splicefeed probe`"
+            } else {
+                "no [auth.difm] api_key is configured, and the listen key alone does not \
+                 unlock episode audio (confirmed 2026-07-11); set the member API key in \
+                 the config or the DIFM_API_KEY env var"
+            };
             return Err(ProviderError::NoAudioAsset {
                 episode: episode.clone(),
-                hint: "the response held no audio asset; either the listen key is not being \
-                       accepted (auth mechanism unconfirmed — run `splicefeed probe`) or the \
-                       upstream schema drifted"
-                    .into(),
+                hint: hint.into(),
             });
         };
         if !audio_url.query_pairs().any(|(k, _)| k == "listen_key") {
@@ -277,6 +305,9 @@ impl ProviderFactory for DifmFactory {
             .ok_or(ProviderError::MissingCredentials("difm"))?;
         let mut builder = DifmProvider::builder(key.clone())
             .quarantine_dir(config.data_dir().join("quarantine").join("difm"));
+        if let Some(api_key) = config.difm_api_key() {
+            builder = builder.api_key(api_key.clone());
+        }
         if let Some(base_url) = config.difm_base_url() {
             builder = builder.base_url(base_url.clone());
         }

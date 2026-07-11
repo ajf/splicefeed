@@ -164,6 +164,43 @@ impl<'de> Deserialize<'de> for ListenKey {
     }
 }
 
+/// An AudioAddict member API key.
+///
+/// A distinct credential from the [`ListenKey`]: the listen key authorizes
+/// premium *stream hosts*, while the member API key authorizes the API
+/// itself (confirmed empirically 2026-07-11 — episode audio assets do not
+/// appear for any placement of the listen key). Same secrecy rules as
+/// [`ListenKey`].
+#[derive(Clone)]
+pub struct ApiKey(SecretString);
+
+impl ApiKey {
+    /// Wrap a raw key.
+    pub fn new(key: String) -> Self {
+        Self(key.into())
+    }
+
+    /// Reveal the key. Call only where the value is actually sent upstream.
+    pub fn expose(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl fmt::Debug for ApiKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ApiKey(<redacted>)")
+    }
+}
+
+impl<'de> Deserialize<'de> for ApiKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(Self::new)
+    }
+}
+
 /// Classification of a failure, shared between episode state, logs, and the
 /// `download errors` metric labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -306,18 +343,25 @@ pub struct AudioSource {
     pub bytes: Option<u64>,
 }
 
-/// A URL rendered for logs: the value of any `listen_key` query parameter
-/// is replaced with `REDACTED`. Every URL that ends up in a log line or an
-/// error message goes through this.
+/// Query parameters that carry credentials and must never reach a log.
+const SECRET_PARAMS: [&str; 3] = ["listen_key", "api_key", "audio_token"];
+
+/// A URL rendered for logs: the value of any credential query parameter
+/// (`listen_key`, `api_key`, `audio_token`) is replaced with `REDACTED`.
+/// Every URL that ends up in a log line or an error message goes through
+/// this.
 pub fn redacted(url: &Url) -> String {
-    if !url.query_pairs().any(|(k, _)| k == "listen_key") {
+    if !url
+        .query_pairs()
+        .any(|(k, _)| SECRET_PARAMS.contains(&k.as_ref()))
+    {
         return url.to_string();
     }
     let mut clean = url.clone();
     let pairs: Vec<(String, String)> = url
         .query_pairs()
         .map(|(k, v)| {
-            let v = if k == "listen_key" {
+            let v = if SECRET_PARAMS.contains(&k.as_ref()) {
                 "REDACTED".into()
             } else {
                 v
@@ -359,6 +403,16 @@ mod tests {
         assert!(!shown.contains("sekrit"));
         assert!(shown.contains("listen_key=REDACTED"));
         assert!(shown.contains("foo=1"));
+    }
+
+    #[test]
+    fn redaction_hides_api_key_too() {
+        let url: Url = "https://api.audioaddict.com/v1/di/shows/x/episodes/1?api_key=sekrit"
+            .parse()
+            .expect("valid url");
+        let shown = redacted(&url);
+        assert!(!shown.contains("sekrit"));
+        assert!(shown.contains("api_key=REDACTED"));
     }
 
     #[test]

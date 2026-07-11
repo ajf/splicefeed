@@ -126,13 +126,21 @@ tests):
   `tracks[0].length` is the duration in seconds; `start_at` is RFC 3339
   with offset; the episode `slug` (e.g. `162`) is the addressable id.
 - `GET shows/<slug>/episodes/<episode-slug>` — single episode.
-- **Still UNCONFIRMED (needs a real listen key):** the audio asset shape.
-  Unauthenticated, `tracks[].content` is `{}` and `tracks[].asset_url`
-  points at *artwork*, not audio. `resolve_audio` currently sends
-  `?listen_key=` on the single-episode endpoint (the historically known
-  mechanism) and fails loudly with a hint if no asset appears; `probe`
-  against the live API with a real key is the verification step, and the
-  parser must not trust `asset_url` without an audio-looking extension.
+- **Confirmed 2026-07-11 with a real premium listen key: the listen key
+  does NOT unlock audio assets in the API.** Tested against the live
+  single-episode and `tracks/<id>` endpoints: `?listen_key=` is silently
+  ignored (200, `tracks[].content` stays `{}`), and HTTP basic auth (all
+  arrangements) and an `X-Listen-Key` header do no better. `?api_key=` is
+  a recognized parameter — bogus values get 403 "Invalid API Key" — and
+  takes the *member API key*, a separate credential (found in the
+  logged-in di.fm page source; `[auth.difm] api_key` / `DIFM_API_KEY`).
+  `resolve_audio` sends `?api_key=` when configured and still appends the
+  listen key to resolved audio URLs, which is what it historically
+  authorizes (premium stream hosts).
+- **Still UNCONFIRMED (needs a real member API key):** the authenticated
+  audio asset *shape*. The parser stays maximally tolerant
+  (`content.assets[].url`, `content.url`, extension-gated `asset_url`)
+  and fails loudly with a hint; `probe` is the verification step.
 
 ### Resilience to drift (first-class)
 

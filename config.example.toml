@@ -31,6 +31,11 @@ keep_last = 50
 # value; one of the two is required if any show uses the difm provider.
 [auth.difm]
 #listen_key = "your-listen-key"
+# Member API key — required for episode audio. The listen key only
+# authorizes the stream hosts, not the API (confirmed 2026-07-11). Find it
+# while logged in at https://www.di.fm: view the page source and search
+# for "api_key" in the embedded app config. DIFM_API_KEY env var overrides.
+#api_key = "your-member-api-key"
 # API base override for sibling AudioAddict networks (RadioTunes,
 # JazzRadio, ...); leave unset for DI.FM.
 #base_url = "https://api.audioaddict.com/v1/radiotunes/"
