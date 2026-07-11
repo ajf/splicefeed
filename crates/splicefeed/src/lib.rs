@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use futures_util::StreamExt;
 use splicefeed_core::download::{Downloader, probe_duration};
 use splicefeed_core::retention;
-use splicefeed_core::storage::{CachedFile, EpisodeRecord, Storage};
+use splicefeed_core::storage::{CachedFile, Storage};
 
 pub use splicefeed_core::config::{ArtworkOverride, Config, ConfigError, Retention, ShowConfig};
 pub use splicefeed_core::domain::{
@@ -35,7 +35,7 @@ pub use splicefeed_core::domain::{
 };
 pub use splicefeed_core::download::DownloadError;
 pub use splicefeed_core::ipc;
-pub use splicefeed_core::storage::StorageError;
+pub use splicefeed_core::storage::{EpisodeRecord, ShowRecord, StorageError};
 pub use splicefeed_providers::{Provider, ProviderError, ProviderRegistry};
 
 /// Errors surfaced by [`Library`] operations.
@@ -97,6 +97,22 @@ impl Library {
     /// The validated configuration this library was opened with.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// All shows recorded in local storage, ordered by slug, with poll
+    /// bookkeeping. May include shows no longer in the configuration —
+    /// storage outlives config edits.
+    pub async fn show_records(&self) -> Result<Vec<ShowRecord>, LibraryError> {
+        Ok(self.storage.shows().await?)
+    }
+
+    /// Everything storage knows about one show's episodes, newest first:
+    /// lifecycle state, file location, size, hash, MIME, timestamps.
+    pub async fn episode_records(
+        &self,
+        slug: &ShowSlug,
+    ) -> Result<Vec<EpisodeRecord>, LibraryError> {
+        Ok(self.storage.episodes(slug).await?)
     }
 
     /// Poll one show: discover new episodes, download them (bounded

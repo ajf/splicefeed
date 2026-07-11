@@ -301,7 +301,10 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
 4. **RSS + server** — feed generation, axum routes, range-served media.
    **← usable milestone: feeds work in a real podcast app here.**
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
-6. **IPC + TUI** — socket protocol, `splicefeed status`.
+6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (A
+   plain-text/JSON `status` that reads the database directly shipped
+   early, alongside milestone 3; milestone 6 upgrades it to the live
+   socket-fed view.)
 7. **Telemetry** — OTel/OTLP/Prometheus wiring (bridge risk re-checked here).
 8. **Packaging** — systemd unit, Podman quadlet, launchd plist, musl build,
    README (config reference, deployment, "when DI.FM changes their API").

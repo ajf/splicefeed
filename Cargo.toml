@@ -25,7 +25,9 @@ secrecy = "0.10"
 figment = { version = "0.10", features = ["toml"] }
 humantime-serde = "1"
 url = { version = "2", features = ["serde"] }
-jiff = "0.2"
+jiff = { version = "0.2", features = ["serde"] }
+humansize = "2"
+humantime = "2"
 etcetera = "0.8"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }

@@ -249,7 +249,8 @@ impl FromStr for ErrorClass {
 ///
 /// Pruned rows stay in storage so a pruned episode is never re-discovered
 /// as "new".
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum EpisodeState {
     /// Known from a provider listing; no local file yet.
     Discovered,
@@ -451,6 +452,12 @@ impl fmt::Display for AudioMime {
             Self::Ogg => "audio/ogg",
             Self::Other(raw) => raw,
         })
+    }
+}
+
+impl Serialize for AudioMime {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
     }
 }
 

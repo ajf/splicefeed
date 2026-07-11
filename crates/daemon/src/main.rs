@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
-use splicefeed::{Config, Library, Mode};
+use splicefeed::{Config, EpisodeState, Library, Mode};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -35,8 +35,14 @@ enum Command {
         #[arg(long)]
         once: bool,
     },
-    /// Live daemon status TUI (connects to the control socket).
-    Status,
+    /// Print the library's state from the database: cached files with
+    /// locations and hashes, per-show poll health, total space used.
+    /// (The live TUI over the control socket lands in milestone 6.)
+    Status {
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+    },
     /// Hit the live provider API for one show and report what parsed —
     /// the early-warning system for upstream API drift.
     Probe {
@@ -60,9 +66,227 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
-        Command::Status => bail!("`status` lands in milestone 6 (IPC + TUI)"),
+        Command::Status { format } => status(cli.config.as_deref(), format).await,
         Command::Probe { slug } => probe(cli.config.as_deref(), &slug).await,
     }
+}
+
+/// How `status` renders its report.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum OutputFormat {
+    /// Human-readable text.
+    Text,
+    /// Machine-readable JSON.
+    Json,
+}
+
+/// Snapshot of the library assembled for `status`. The JSON output *is*
+/// this struct, and the text renderer reads from it too, so the two
+/// formats can never drift apart.
+#[derive(serde::Serialize)]
+struct StatusReport {
+    shows: Vec<ShowStatus>,
+    configured_never_synced: Vec<splicefeed::ShowSlug>,
+    total_files: usize,
+    total_bytes: u64,
+    state_db: std::path::PathBuf,
+    data_dir: std::path::PathBuf,
+}
+
+#[derive(serde::Serialize)]
+struct ShowStatus {
+    slug: splicefeed::ShowSlug,
+    title: String,
+    provider: String,
+    last_poll_at: Option<jiff::Timestamp>,
+    last_poll_ok: Option<bool>,
+    last_error: Option<String>,
+    cached_bytes: u64,
+    episodes: Vec<EpisodeStatus>,
+}
+
+#[derive(serde::Serialize)]
+struct EpisodeStatus {
+    id: splicefeed::EpisodeId,
+    state: EpisodeState,
+    bytes: Option<u64>,
+    mime: Option<splicefeed::AudioMime>,
+    duration_secs: Option<u32>,
+    blake3: Option<String>,
+    file_path: Option<std::path::PathBuf>,
+    downloaded_at: Option<jiff::Timestamp>,
+}
+
+/// Report the library's state straight from the database — no daemon or
+/// socket involved, safe to run alongside one (WAL + busy timeout).
+async fn status(config_path: Option<&std::path::Path>, format: OutputFormat) -> anyhow::Result<()> {
+    let config = Config::load(config_path)?;
+    let library = Library::open(config).await?;
+
+    let shows = library.show_records().await?;
+    let show_reports =
+        futures_util::future::try_join_all(shows.iter().map(|show| show_status(&library, show)))
+            .await?;
+    let configured_never_synced: Vec<splicefeed::ShowSlug> = library
+        .config()
+        .shows()
+        .iter()
+        .map(|show| show.slug())
+        .filter(|slug| !shows.iter().any(|record| &record.slug == *slug))
+        .cloned()
+        .collect();
+
+    let report = StatusReport {
+        total_files: show_reports
+            .iter()
+            .flat_map(|show| &show.episodes)
+            .filter(|episode| matches!(episode.state, EpisodeState::Cached))
+            .count(),
+        total_bytes: show_reports.iter().map(|show| show.cached_bytes).sum(),
+        state_db: library.config().data_dir().join("splicefeed.db"),
+        data_dir: library.config().data_dir().to_owned(),
+        shows: show_reports,
+        configured_never_synced,
+    };
+
+    match format {
+        OutputFormat::Text => print_text(&report),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+    }
+    Ok(())
+}
+
+async fn show_status(
+    library: &Library,
+    show: &splicefeed::ShowRecord,
+) -> Result<ShowStatus, splicefeed::LibraryError> {
+    let episodes = library.episode_records(&show.slug).await?;
+    Ok(ShowStatus {
+        slug: show.slug.clone(),
+        title: show.title.clone(),
+        provider: show.provider.clone(),
+        last_poll_at: show.last_poll_at,
+        last_poll_ok: show.last_poll_ok,
+        last_error: show.last_error.clone(),
+        cached_bytes: episodes
+            .iter()
+            .filter(|episode| matches!(episode.state, EpisodeState::Cached))
+            .filter_map(|episode| episode.bytes)
+            .sum(),
+        episodes: episodes
+            .into_iter()
+            .map(|episode| EpisodeStatus {
+                id: episode.id,
+                state: episode.state,
+                bytes: episode.bytes,
+                mime: episode.mime,
+                duration_secs: episode.duration_secs,
+                blake3: episode.blake3.map(|hash| hash.to_hex().to_string()),
+                file_path: episode.file_path,
+                downloaded_at: episode.downloaded_at,
+            })
+            .collect(),
+    })
+}
+
+fn print_text(report: &StatusReport) {
+    if report.shows.is_empty() {
+        println!("no shows in storage yet — run `splicefeed run --once` first\n");
+    }
+    report.shows.iter().for_each(print_show_text);
+    report
+        .configured_never_synced
+        .iter()
+        .for_each(|slug| println!("{slug} — configured, never synced\n"));
+    println!(
+        "total: {} file(s) on disk, {}",
+        report.total_files,
+        humansize::format_size(report.total_bytes, humansize::DECIMAL)
+    );
+    println!("state db: {}", report.state_db.display());
+    println!("data dir: {}", report.data_dir.display());
+}
+
+fn print_show_text(show: &ShowStatus) {
+    println!("{} — {} [{}]", show.slug, show.title, show.provider);
+    match (&show.last_poll_at, show.last_poll_ok) {
+        (Some(at), Some(true)) => println!("  last poll {} (ok)", stamp(at)),
+        (Some(at), Some(false)) => println!(
+            "  last poll {} (FAILED: {})",
+            stamp(at),
+            show.last_error.as_deref().unwrap_or("unknown error"),
+        ),
+        _ => println!("  never polled"),
+    }
+
+    let of_state = |wanted: fn(&EpisodeState) -> bool| {
+        show.episodes
+            .iter()
+            .filter(move |episode| wanted(&episode.state))
+    };
+    let cached: Vec<&EpisodeStatus> =
+        of_state(|state| matches!(state, EpisodeState::Cached)).collect();
+    let failed: Vec<String> = show
+        .episodes
+        .iter()
+        .filter_map(|episode| match episode.state {
+            EpisodeState::Failed(class) => Some(format!("{} ({class})", episode.id)),
+            _ => None,
+        })
+        .collect();
+    let downloading = of_state(|state| matches!(state, EpisodeState::Downloading)).count();
+    println!(
+        "  {} cached ({}) · {} discovered · {} failed · {} pruned{}",
+        cached.len(),
+        humansize::format_size(show.cached_bytes, humansize::DECIMAL),
+        of_state(|state| matches!(state, EpisodeState::Discovered)).count(),
+        failed.len(),
+        of_state(|state| matches!(state, EpisodeState::Pruned)).count(),
+        // Only visible while a daemon is mid-download (or died there).
+        if downloading > 0 {
+            format!(" · {downloading} downloading")
+        } else {
+            String::new()
+        },
+    );
+
+    cached.iter().for_each(|episode| {
+        println!(
+            "  {:>8}  {:>10}  {:<11}  {:>9}  downloaded {}",
+            episode.id,
+            episode.bytes.map_or("?".into(), |b| humansize::format_size(
+                b,
+                humansize::DECIMAL
+            )),
+            episode
+                .mime
+                .as_ref()
+                .map_or("mime?".into(), ToString::to_string),
+            episode.duration_secs.map_or("?".into(), |secs| {
+                humantime::format_duration(std::time::Duration::from_secs(secs.into())).to_string()
+            }),
+            episode.downloaded_at.as_ref().map_or("?".into(), stamp),
+        );
+        println!(
+            "           blake3 {}",
+            episode.blake3.as_deref().unwrap_or("?")
+        );
+        println!(
+            "           {}",
+            episode
+                .file_path
+                .as_deref()
+                .map_or("<file path missing>".into(), |p| p.display().to_string()),
+        );
+    });
+    if !failed.is_empty() {
+        println!("  failed: {}", failed.join(", "));
+    }
+    println!();
+}
+
+fn stamp(at: &jiff::Timestamp) -> String {
+    at.strftime("%Y-%m-%d %H:%M:%SZ").to_string()
 }
 
 /// Hit the live provider API and report what parsed — the early-warning

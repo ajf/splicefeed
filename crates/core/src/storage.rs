@@ -248,6 +248,21 @@ impl Storage {
         .await
     }
 
+    /// All shows recorded in storage, ordered by slug. May include shows
+    /// that are no longer configured — storage outlives config edits.
+    pub async fn shows(&self) -> Result<Vec<ShowRecord>, StorageError> {
+        self.with(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT slug, provider, title, description, artwork_path,
+                        last_poll_at, last_poll_ok, last_error
+                 FROM shows ORDER BY slug",
+            )?;
+            let rows = stmt.query_map([], decode_show)?;
+            rows.map(|row| row?).collect()
+        })
+        .await
+    }
+
     /// Fetch one show row.
     pub async fn show(&self, slug: &ShowSlug) -> Result<Option<ShowRecord>, StorageError> {
         let slug = slug.clone();
@@ -794,5 +809,20 @@ mod tests {
         let ghost: ShowSlug = "ghost".parse().unwrap();
         storage.record_poll(&ghost, None).await.unwrap();
         assert!(storage.show(&ghost).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn shows_lists_all_rows_ordered() {
+        let (_dir, storage, slug) = open_temp().await;
+        let other: ShowSlug = "anything-melodic".parse().unwrap();
+        storage
+            .upsert_show(&show_meta(&other), "difm")
+            .await
+            .unwrap();
+
+        let shows = storage.shows().await.unwrap();
+        assert_eq!(shows.len(), 2);
+        assert_eq!(shows[0].slug, other); // "anything-melodic" < "test-show"
+        assert_eq!(shows[1].slug, slug);
     }
 }
