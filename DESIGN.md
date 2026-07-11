@@ -89,10 +89,16 @@ Everything else comes from the crates listed in the spec's mapping.
 trait Provider: Send + Sync {
     async fn show(&self, slug: &ShowSlug) -> Result<ShowMeta, ProviderError>;
     async fn episodes(&self, slug: &ShowSlug) -> Result<Vec<EpisodeMeta>, ProviderError>;
-    async fn resolve_audio(&self, ep: &EpisodeId) -> Result<AudioSource, ProviderError>;
-    async fn artwork(&self, slug: &ShowSlug) -> Result<Option<ArtworkSource>, ProviderError>;
+    async fn resolve_audio(&self, show: &ShowSlug, ep: &EpisodeId)
+        -> Result<AudioSource, ProviderError>;
+    async fn artwork(&self, slug: &ShowSlug) -> Result<Option<Url>, ProviderError>;
 }
 ```
+
+(`resolve_audio` takes the show too: AudioAddict addresses episodes by
+`<show-slug>/<episode-slug>`, and the sync engine always knows the show.
+`EpisodeId` wraps the provider's episode slug; feed GUIDs are
+`difm/<show>/<episode-slug>`.)
 
 - `async fn` in trait is not object-safe, and the registry holds
   `Arc<dyn Provider>` keyed by the TOML `provider = "..."` string — so the
@@ -104,16 +110,29 @@ trait Provider: Send + Sync {
 
 ### DI.FM specifics — treated as reverse-engineered and fragile
 
-Starting points to confirm empirically (nothing hardcoded until verified
-against the live API with the operator's listen key):
+Confirmed empirically 2026-07-11 against the live API (fixtures captured in
+`crates/providers/tests/fixtures/audioaddict/`, exercised by `wiremock`
+tests):
 
-- `https://www.di.fm/shows/<slug>` / `.../episodes?page=&per_page=` JSON
-- `api.audioaddict.com/v1/di/...` — preferred if cleaner, since it generalizes
-  across AudioAddict networks (RadioTunes, JazzRadio, …)
-- Audio assets need `?listen_key=...` appended on the content host
-
-Representative responses are captured into `tests/fixtures/` as they are
-confirmed; `wiremock` tests run against those fixtures.
+- Base: `https://api.audioaddict.com/v1/di/` — the AudioAddict API is used,
+  not the di.fm website (`www.di.fm/shows/<slug>` 403s/404s for non-browser
+  clients; the API serves JSON cleanly and generalizes across AudioAddict
+  networks via the `/v1/<network>/` path segment).
+- `GET shows/<slug>` — show metadata, **no auth required**. Image URLs are
+  protocol-relative RFC 6570 templates
+  (`//cdn-images…/x.png{?size,height,…}`) — template stripped, https forced.
+- `GET shows/<slug>/episodes?page=N&per_page=M` — newest first; pagination
+  via RFC 5988 `Link` headers (`rel="next"/"last"`). No auth required.
+  `tracks[0].length` is the duration in seconds; `start_at` is RFC 3339
+  with offset; the episode `slug` (e.g. `162`) is the addressable id.
+- `GET shows/<slug>/episodes/<episode-slug>` — single episode.
+- **Still UNCONFIRMED (needs a real listen key):** the audio asset shape.
+  Unauthenticated, `tracks[].content` is `{}` and `tracks[].asset_url`
+  points at *artwork*, not audio. `resolve_audio` currently sends
+  `?listen_key=` on the single-episode endpoint (the historically known
+  mechanism) and fails loudly with a hint if no asset appears; `probe`
+  against the live API with a real key is the verification step, and the
+  parser must not trust `asset_url` without an audio-looking extension.
 
 ### Resilience to drift (first-class)
 

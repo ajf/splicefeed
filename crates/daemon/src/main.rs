@@ -61,10 +61,88 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Command::Status => bail!("`status` lands in milestone 6 (IPC + TUI)"),
-        Command::Probe { slug } => {
-            bail!("`probe {slug}` lands in milestone 2 (provider + live API confirmation)")
+        Command::Probe { slug } => probe(cli.config.as_deref(), &slug).await,
+    }
+}
+
+/// Hit the live provider API and report what parsed — the early-warning
+/// system for upstream schema drift. Unparseable payloads are quarantined
+/// (see warnings) rather than crashing anything.
+async fn probe(config_path: Option<&std::path::Path>, slug: &str) -> anyhow::Result<()> {
+    let config = Config::load(config_path)?;
+    let slug: splicefeed::ShowSlug = slug.parse()?;
+
+    let provider_name = config
+        .shows()
+        .iter()
+        .find(|s| s.slug() == &slug)
+        .map(|s| s.provider().to_owned())
+        .unwrap_or_else(|| "difm".to_owned());
+    let provider = splicefeed::ProviderRegistry::create(&config, &provider_name)?;
+    println!("probing `{slug}` via provider `{provider_name}`");
+
+    match provider.show(&slug).await {
+        Ok(meta) => {
+            println!("show:      OK  title={:?}", meta.title);
+            println!(
+                "           description: {}",
+                meta.description
+                    .as_deref()
+                    .map_or("MISSING".into(), |d| format!("{} chars", d.len()))
+            );
+            println!(
+                "           artwork: {}",
+                meta.artwork
+                    .as_ref()
+                    .map_or("MISSING".into(), |u| u.to_string())
+            );
+        }
+        Err(err) => println!("show:      FAILED  {err}"),
+    }
+
+    let episodes = match provider.episodes(&slug).await {
+        Ok(episodes) => {
+            println!(
+                "episodes:  OK  {} parsed (drifted entries, if any, are quarantined and warned above)",
+                episodes.len()
+            );
+            for episode in episodes.iter().take(5) {
+                println!(
+                    "           {:>8}  {:60}  {}  {}",
+                    episode.id.to_string(),
+                    format!("{:?}", episode.title),
+                    episode
+                        .published_at
+                        .map_or("pubdate MISSING".into(), |t| t.to_string()),
+                    episode
+                        .duration_secs
+                        .map_or("duration MISSING".into(), |d| format!("{d}s")),
+                );
+            }
+            episodes
+        }
+        Err(err) => {
+            println!("episodes:  FAILED  {err}");
+            Vec::new()
+        }
+    };
+
+    if let Some(first) = episodes.first() {
+        match provider.resolve_audio(&slug, &first.id).await {
+            Ok(audio) => {
+                println!(
+                    "audio:     OK  {} ({}, {})",
+                    splicefeed::redacted(&audio.url),
+                    audio.mime.as_deref().unwrap_or("mime unknown"),
+                    audio
+                        .bytes
+                        .map_or("size unknown".into(), |b| format!("{b} bytes")),
+                );
+            }
+            Err(err) => println!("audio:     FAILED  {err}"),
         }
     }
+    Ok(())
 }
 
 async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Result<()> {

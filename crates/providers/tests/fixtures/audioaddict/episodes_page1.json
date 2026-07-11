@@ -1,0 +1,535 @@
+[
+  {
+    "id": 203329,
+    "start_at": "2026-07-05T14:00:00-04:00",
+    "slug": "162",
+    "artists_tagline": "with Mark Pledger",
+    "images": {},
+    "tracks": [
+      {
+        "id": 3161835,
+        "length": 7200,
+        "title": "Melodik Revolution 162",
+        "version": null,
+        "display_title": "Melodik Revolution 162",
+        "display_artist": "Mark Pledger",
+        "track": "Mark Pledger - Melodik Revolution 162",
+        "mix": true,
+        "artists": [
+          {
+            "id": 3403,
+            "name": "Mark Pledger",
+            "slug": "mark-pledger",
+            "images": {},
+            "type": "artist"
+          }
+        ],
+        "release": null,
+        "content_accessibility": 0,
+        "preview_accessibility": 0,
+        "retail_accessibility": 0,
+        "retail": {},
+        "release_date": null,
+        "waveform_url": "//waveform.audioaddict.com/prd/2/9/2/9/8/5578486417e28d17be2f6e8df21eb8ac283.json",
+        "track_container_id": null,
+        "isrc": null,
+        "parental_advisory": null,
+        "details_url": "/tracks/3161835",
+        "images": {
+          "default": "//cdn-images.audioaddict.com/f/a/a/3/b/3/faa3b343ee8b1140099543bf2c3b3cb5.png{?size,height,width,quality,pad}"
+        },
+        "votes": {
+          "up": 24,
+          "down": 4,
+          "who_upvoted": {
+            "size": 1079,
+            "hashes": 30,
+            "seed": 1783787736,
+            "bits": [
+              1955374655,
+              2402629107,
+              2690785829,
+              4071120936,
+              987157804,
+              4170965934,
+              2297300772,
+              1234601952,
+              3638435668,
+              274170393,
+              4273047427,
+              2075197989,
+              1477467534,
+              3909682724,
+              1075740728,
+              1685774356,
+              4273959395,
+              3128088959,
+              3544586149,
+              1267625467,
+              2359443348,
+              1036850401,
+              121764654,
+              3594799835,
+              3290062081,
+              1892588471,
+              1739477381,
+              1073085636,
+              3093298668,
+              55177256,
+              2099244772,
+              53412179,
+              2372506557,
+              287924
+            ],
+            "items": null
+          },
+          "who_downvoted": {
+            "size": 216,
+            "hashes": 30,
+            "seed": 1783787736,
+            "bits": [
+              1645302418,
+              2770716570,
+              1485635746,
+              3661120081,
+              1080167581,
+              1908905257,
+              12012429
+            ],
+            "items": null
+          }
+        },
+        "content": {},
+        "preview": null,
+        "is_show_asset": true,
+        "artist": {
+          "id": 3403,
+          "name": "Mark Pledger",
+          "asset_url": null,
+          "images": {}
+        },
+        "asset_url": "//cdn-images.audioaddict.com/f/a/a/3/b/3/faa3b343ee8b1140099543bf2c3b3cb5.png"
+      }
+    ],
+    "show": {
+      "id": 10506954,
+      "name": "Melodik Revolution",
+      "slug": "melodik-revolution",
+      "channels": [
+        {
+          "id": 1,
+          "ad_channels": "8554477917, electronic_music, 8614582190",
+          "channel_director": "Entranced",
+          "description_long": "Trance is pure, emotive dance music which embraces incredible melodies, future-facing production and energetic anthems that have made it a pillar of electronic music worldwide. Its instantly recognizable 4/4 beat combines with rifting and psychedelic qualities that draw fans to the dancefloor and leave them begging for more at the end of the night.  In addition to 24/7 streaming, this channel brings you exclusive, and unique Mix Shows from the top DJs in Trance including Armin van Buuren, Above & Beyond, Ferry Corsten, Paul van Dyk, and many more. And have no fear, although Trance has gone mainstream, the DI.FM Trance channel brings together only the most epic sounding tracks from authentic artists without ever wandering near the realm of modern pop. ",
+          "description_short": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+          "key": "trance",
+          "name": "Trance",
+          "public": false,
+          "ad_dfp_unit_id": "radio_di_trance",
+          "network_id": 1,
+          "premium_id": 0,
+          "tracklist_server_id": 25623,
+          "artists": [
+            {
+              "id": 3253,
+              "name": "Armin van Buuren",
+              "asset_url": "//cdn-images.audioaddict.com/c/2/e/b/a/d/c2ebad2347682ea36ea63f5b970320c1.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/c/2/e/b/a/d/c2ebad2347682ea36ea63f5b970320c1.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3165,
+              "name": "Ferry Corsten",
+              "asset_url": "//cdn-images.audioaddict.com/b/0/e/9/3/7/b0e937c6794fd4b756d359e08a50f1f9.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/b/0/e/9/3/7/b0e937c6794fd4b756d359e08a50f1f9.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 32430,
+              "name": "Above & Beyond",
+              "asset_url": "//cdn-images.audioaddict.com/c/d/b/7/9/c/cdb79c02dcd3c505a10343120fc328ea.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/c/d/b/7/9/c/cdb79c02dcd3c505a10343120fc328ea.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3780,
+              "name": "Solarstone",
+              "asset_url": "//cdn-images.audioaddict.com/1/7/d/7/a/f/17d7afaf526b3f474613b3e8d74a9b73.png",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/1/7/d/7/a/f/17d7afaf526b3f474613b3e8d74a9b73.png{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 50528,
+              "name": "Aly & Fila",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 5490,
+              "name": "The Thrillseekers",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 3225,
+              "name": "Markus Schulz",
+              "asset_url": "//cdn-images.audioaddict.com/6/2/3/8/3/7/62383747829b3ef6b800474e841df9c3.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/6/2/3/8/3/7/62383747829b3ef6b800474e841df9c3.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3369,
+              "name": "Gareth Emery",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 3388,
+              "name": "Giuseppe Ottaviani",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 536614,
+              "name": "DIM3NSION",
+              "asset_url": null,
+              "images": {}
+            }
+          ],
+          "asset_id": 764046,
+          "asset_url": "//cdn-images.audioaddict.com/b/1/0/5/6/7/b10567777ad265dcc63816fa32396654.png",
+          "banner_url": "//cdn-images.audioaddict.com/c/b/8/a/7/3/cb8a735077fa5c7f5b3969ec7b03f30a.png",
+          "description": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+          "created_at": "2010-03-16T18:02:42-04:00",
+          "updated_at": "2022-05-03T02:27:27-04:00",
+          "similar_channels": [
+            {
+              "id": 159,
+              "similar_channel_id": 2
+            },
+            {
+              "id": 160,
+              "similar_channel_id": 90
+            },
+            {
+              "id": 186,
+              "similar_channel_id": 175
+            },
+            {
+              "id": 1560,
+              "similar_channel_id": 209
+            },
+            {
+              "id": 1561,
+              "similar_channel_id": 506
+            }
+          ],
+          "images": {
+            "horizontal_banner": "//cdn-images.audioaddict.com/c/b/8/a/7/3/cb8a735077fa5c7f5b3969ec7b03f30a.png{?size,height,width,quality,pad}",
+            "tall_banner": "//cdn-images.audioaddict.com/e/2/5/a/6/1/e25a61631d8e6235f62ca56e09a02e5a.png{?size,height,width,quality,pad}",
+            "vertical": "//cdn-images.audioaddict.com/f/6/2/4/6/e/f6246e44c1afa789cd7e477e2a806027.png{?size,height,width,quality,pad}",
+            "default": "//cdn-images.audioaddict.com/b/1/0/5/6/7/b10567777ad265dcc63816fa32396654.png{?size,height,width,quality,pad}",
+            "square": "//cdn-images.audioaddict.com/4/0/e/f/2/9/40ef29dd8b6a53f19608325284534e0d.png{?size,height,width,quality,pad}",
+            "compact": "//cdn-images.audioaddict.com/8/d/7/6/6/1/8d7661508fbf7ffb76654c05a017d1f3.png{?size,height,width,quality,pad}"
+          },
+          "channel_filter_ids": [
+            5,
+            89,
+            7,
+            118,
+            106,
+            1
+          ]
+        }
+      ],
+      "images": {
+        "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+        "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+      },
+      "channel_filter_ids": [
+        5,
+        7,
+        118,
+        106,
+        1,
+        89
+      ]
+    },
+    "name": "162",
+    "free": true
+  },
+  {
+    "id": 202691,
+    "start_at": "2026-06-07T14:00:00-04:00",
+    "slug": "161",
+    "artists_tagline": "with Mark Pledger",
+    "images": {},
+    "tracks": [
+      {
+        "id": 3159664,
+        "length": 7200,
+        "title": "Melodik Revolution 161",
+        "version": null,
+        "display_title": "Melodik Revolution 161",
+        "display_artist": "Mark Pledger",
+        "track": "Mark Pledger - Melodik Revolution 161",
+        "mix": true,
+        "artists": [
+          {
+            "id": 3403,
+            "name": "Mark Pledger",
+            "slug": "mark-pledger",
+            "images": {},
+            "type": "artist"
+          }
+        ],
+        "release": null,
+        "content_accessibility": 0,
+        "preview_accessibility": 0,
+        "retail_accessibility": 0,
+        "retail": {},
+        "release_date": null,
+        "waveform_url": "//waveform.audioaddict.com/prd/8/c/d/9/8/4b51d873cefbad77fbaf7ad3d0cd1e2992d.json",
+        "track_container_id": null,
+        "isrc": null,
+        "parental_advisory": null,
+        "details_url": "/tracks/3159664",
+        "images": {
+          "default": "//cdn-images.audioaddict.com/f/a/a/3/b/3/faa3b343ee8b1140099543bf2c3b3cb5.png{?size,height,width,quality,pad}"
+        },
+        "votes": {
+          "up": 31,
+          "down": 0,
+          "who_upvoted": {
+            "size": 1381,
+            "hashes": 30,
+            "seed": 1783787736,
+            "bits": [
+              3432812532,
+              2817083475,
+              2479810096,
+              4251641547,
+              748791559,
+              1157431582,
+              3396322093,
+              1938102857,
+              2361314197,
+              1610058839,
+              2642736733,
+              3572409823,
+              1182166209,
+              1951847961,
+              554207187,
+              639863458,
+              49051685,
+              1786678062,
+              4260869379,
+              605956304,
+              559585562,
+              2441010308,
+              3272660671,
+              729794581,
+              3907202590,
+              312709588,
+              1601784406,
+              2215673589,
+              859947521,
+              1634527529,
+              1082780756,
+              3112708106,
+              1999819495,
+              1196196138,
+              634486936,
+              3496998506,
+              1726115157,
+              1156196005,
+              756346939,
+              1364882451,
+              329178145,
+              310107301,
+              1856275601,
+              19
+            ],
+            "items": null
+          },
+          "who_downvoted": {
+            "size": 44,
+            "hashes": 30,
+            "seed": 1783787736,
+            "bits": [
+              0,
+              0
+            ],
+            "items": null
+          }
+        },
+        "content": {},
+        "preview": null,
+        "is_show_asset": true,
+        "artist": {
+          "id": 3403,
+          "name": "Mark Pledger",
+          "asset_url": null,
+          "images": {}
+        },
+        "asset_url": "//cdn-images.audioaddict.com/f/a/a/3/b/3/faa3b343ee8b1140099543bf2c3b3cb5.png"
+      }
+    ],
+    "show": {
+      "id": 10506954,
+      "name": "Melodik Revolution",
+      "slug": "melodik-revolution",
+      "channels": [
+        {
+          "id": 1,
+          "ad_channels": "8554477917, electronic_music, 8614582190",
+          "channel_director": "Entranced",
+          "description_long": "Trance is pure, emotive dance music which embraces incredible melodies, future-facing production and energetic anthems that have made it a pillar of electronic music worldwide. Its instantly recognizable 4/4 beat combines with rifting and psychedelic qualities that draw fans to the dancefloor and leave them begging for more at the end of the night.  In addition to 24/7 streaming, this channel brings you exclusive, and unique Mix Shows from the top DJs in Trance including Armin van Buuren, Above & Beyond, Ferry Corsten, Paul van Dyk, and many more. And have no fear, although Trance has gone mainstream, the DI.FM Trance channel brings together only the most epic sounding tracks from authentic artists without ever wandering near the realm of modern pop. ",
+          "description_short": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+          "key": "trance",
+          "name": "Trance",
+          "public": false,
+          "ad_dfp_unit_id": "radio_di_trance",
+          "network_id": 1,
+          "premium_id": 0,
+          "tracklist_server_id": 25623,
+          "artists": [
+            {
+              "id": 3253,
+              "name": "Armin van Buuren",
+              "asset_url": "//cdn-images.audioaddict.com/c/2/e/b/a/d/c2ebad2347682ea36ea63f5b970320c1.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/c/2/e/b/a/d/c2ebad2347682ea36ea63f5b970320c1.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3165,
+              "name": "Ferry Corsten",
+              "asset_url": "//cdn-images.audioaddict.com/b/0/e/9/3/7/b0e937c6794fd4b756d359e08a50f1f9.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/b/0/e/9/3/7/b0e937c6794fd4b756d359e08a50f1f9.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 32430,
+              "name": "Above & Beyond",
+              "asset_url": "//cdn-images.audioaddict.com/c/d/b/7/9/c/cdb79c02dcd3c505a10343120fc328ea.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/c/d/b/7/9/c/cdb79c02dcd3c505a10343120fc328ea.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3780,
+              "name": "Solarstone",
+              "asset_url": "//cdn-images.audioaddict.com/1/7/d/7/a/f/17d7afaf526b3f474613b3e8d74a9b73.png",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/1/7/d/7/a/f/17d7afaf526b3f474613b3e8d74a9b73.png{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 50528,
+              "name": "Aly & Fila",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 5490,
+              "name": "The Thrillseekers",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 3225,
+              "name": "Markus Schulz",
+              "asset_url": "//cdn-images.audioaddict.com/6/2/3/8/3/7/62383747829b3ef6b800474e841df9c3.jpg",
+              "images": {
+                "default": "//cdn-images.audioaddict.com/6/2/3/8/3/7/62383747829b3ef6b800474e841df9c3.jpg{?size,height,width,quality,pad}"
+              }
+            },
+            {
+              "id": 3369,
+              "name": "Gareth Emery",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 3388,
+              "name": "Giuseppe Ottaviani",
+              "asset_url": null,
+              "images": {}
+            },
+            {
+              "id": 536614,
+              "name": "DIM3NSION",
+              "asset_url": null,
+              "images": {}
+            }
+          ],
+          "asset_id": 764046,
+          "asset_url": "//cdn-images.audioaddict.com/b/1/0/5/6/7/b10567777ad265dcc63816fa32396654.png",
+          "banner_url": "//cdn-images.audioaddict.com/c/b/8/a/7/3/cb8a735077fa5c7f5b3969ec7b03f30a.png",
+          "description": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+          "created_at": "2010-03-16T18:02:42-04:00",
+          "updated_at": "2022-05-03T02:27:27-04:00",
+          "similar_channels": [
+            {
+              "id": 159,
+              "similar_channel_id": 2
+            },
+            {
+              "id": 160,
+              "similar_channel_id": 90
+            },
+            {
+              "id": 186,
+              "similar_channel_id": 175
+            },
+            {
+              "id": 1560,
+              "similar_channel_id": 209
+            },
+            {
+              "id": 1561,
+              "similar_channel_id": 506
+            }
+          ],
+          "images": {
+            "horizontal_banner": "//cdn-images.audioaddict.com/c/b/8/a/7/3/cb8a735077fa5c7f5b3969ec7b03f30a.png{?size,height,width,quality,pad}",
+            "tall_banner": "//cdn-images.audioaddict.com/e/2/5/a/6/1/e25a61631d8e6235f62ca56e09a02e5a.png{?size,height,width,quality,pad}",
+            "vertical": "//cdn-images.audioaddict.com/f/6/2/4/6/e/f6246e44c1afa789cd7e477e2a806027.png{?size,height,width,quality,pad}",
+            "default": "//cdn-images.audioaddict.com/b/1/0/5/6/7/b10567777ad265dcc63816fa32396654.png{?size,height,width,quality,pad}",
+            "square": "//cdn-images.audioaddict.com/4/0/e/f/2/9/40ef29dd8b6a53f19608325284534e0d.png{?size,height,width,quality,pad}",
+            "compact": "//cdn-images.audioaddict.com/8/d/7/6/6/1/8d7661508fbf7ffb76654c05a017d1f3.png{?size,height,width,quality,pad}"
+          },
+          "channel_filter_ids": [
+            5,
+            89,
+            7,
+            118,
+            106,
+            1
+          ]
+        }
+      ],
+      "images": {
+        "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+        "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+      },
+      "channel_filter_ids": [
+        5,
+        7,
+        118,
+        106,
+        1,
+        89
+      ]
+    },
+    "name": "161",
+    "free": false
+  }
+]

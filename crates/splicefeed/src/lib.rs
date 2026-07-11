@@ -28,7 +28,7 @@ pub use splicefeed_core::domain::{
     ShowSlug,
 };
 pub use splicefeed_core::ipc;
-pub use splicefeed_providers::{Provider, ProviderError, ProviderRegistry};
+pub use splicefeed_providers::{Provider, ProviderError, ProviderRegistry, redacted};
 
 /// Errors surfaced by [`Library`] operations.
 #[derive(Debug, thiserror::Error)]

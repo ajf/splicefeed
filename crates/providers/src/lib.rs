@@ -7,6 +7,7 @@
 #![deny(missing_docs)]
 
 pub mod difm;
+pub mod quarantine;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,15 +30,35 @@ pub enum ProviderError {
     /// The provider does not know this show.
     #[error("show `{0}` not found upstream")]
     ShowNotFound(ShowSlug),
-    /// Transport-level failure talking to the upstream API.
+    /// Transport-level failure talking to the upstream API. The message is
+    /// pre-redacted: it never contains credentials.
     #[error("upstream request failed: {0}")]
     Http(String),
-    /// The response arrived but could not be parsed; the payload was
-    /// quarantined at the given path.
-    #[error("unparseable upstream response (quarantined at {quarantine_path})")]
+    /// Upstream answered with an unexpected status code.
+    #[error("upstream returned HTTP {status} for {url}")]
+    Status {
+        /// The HTTP status code.
+        status: u16,
+        /// The requested URL, credentials redacted.
+        url: String,
+    },
+    /// The response arrived but could not be parsed; the raw payload was
+    /// quarantined at the given path for inspection.
+    #[error("unparseable upstream response ({reason}); payload quarantined at {quarantine_path}")]
     Parse {
-        /// Where the raw payload was written for inspection.
+        /// Why parsing failed.
+        reason: String,
+        /// Where the raw payload was written.
         quarantine_path: String,
+    },
+    /// The episode exists but no downloadable audio asset was found in the
+    /// response — typically an authentication problem or upstream drift.
+    #[error("no audio asset found for episode `{episode}`: {hint}")]
+    NoAudioAsset {
+        /// The episode that lacked an asset.
+        episode: EpisodeId,
+        /// What to check.
+        hint: String,
     },
 }
 
@@ -52,12 +73,19 @@ pub trait Provider: Send + Sync {
     /// Fetch show-level metadata.
     async fn show(&self, slug: &ShowSlug) -> Result<ShowMeta, ProviderError>;
 
-    /// List episodes for a show, newest first.
+    /// List recent episodes for a show, newest first.
+    ///
+    /// Individually unparseable entries are quarantined and skipped, never
+    /// fatal — a partial listing beats no listing.
     async fn episodes(&self, slug: &ShowSlug) -> Result<Vec<EpisodeMeta>, ProviderError>;
 
-    /// Resolve the downloadable audio URL for an episode (credentials
-    /// included — sensitive, redact before logging).
-    async fn resolve_audio(&self, episode: &EpisodeId) -> Result<AudioSource, ProviderError>;
+    /// Resolve the downloadable audio URL for one episode of a show
+    /// (credentials included — sensitive, redact before logging).
+    async fn resolve_audio(
+        &self,
+        show: &ShowSlug,
+        episode: &EpisodeId,
+    ) -> Result<AudioSource, ProviderError>;
 
     /// Fetch the show's artwork URL, if it has one.
     async fn artwork(&self, slug: &ShowSlug) -> Result<Option<Url>, ProviderError>;
@@ -81,24 +109,33 @@ pub struct ProviderRegistry {
 
 impl ProviderRegistry {
     /// Instantiate every provider referenced by the configured shows.
-    ///
-    /// New providers are registered by adding one factory to the list here.
     pub fn from_config(config: &Config) -> Result<Self, ProviderError> {
-        let factories: &[&dyn ProviderFactory] = &[&difm::DifmFactory];
-
         let mut providers = HashMap::new();
         for show in config.shows() {
             let name = show.provider();
             if providers.contains_key(name) {
                 continue;
             }
-            let factory = factories
-                .iter()
-                .find(|f| f.name() == name)
-                .ok_or_else(|| ProviderError::UnknownProvider(name.to_owned()))?;
+            let factory = Self::factory(name)?;
             providers.insert(factory.name(), factory.create(config)?);
         }
         Ok(Self { providers })
+    }
+
+    /// Instantiate a single provider by name, outside any registry — used
+    /// by `splicefeed probe`, which must work for shows not yet configured.
+    pub fn create(config: &Config, name: &str) -> Result<Arc<dyn Provider>, ProviderError> {
+        Self::factory(name)?.create(config)
+    }
+
+    /// New providers are registered by adding one factory to the list here.
+    fn factory(name: &str) -> Result<&'static dyn ProviderFactory, ProviderError> {
+        const FACTORIES: &[&dyn ProviderFactory] = &[&difm::DifmFactory];
+        FACTORIES
+            .iter()
+            .find(|f| f.name() == name)
+            .copied()
+            .ok_or_else(|| ProviderError::UnknownProvider(name.to_owned()))
     }
 
     /// Look up a provider by registry name.
@@ -106,5 +143,55 @@ impl ProviderRegistry {
         self.providers
             .get(name)
             .ok_or_else(|| ProviderError::UnknownProvider(name.to_owned()))
+    }
+}
+
+/// A URL rendered for logs: the value of any `listen_key` query parameter
+/// is replaced with `REDACTED`. Every URL a provider logs or embeds in an
+/// error goes through this.
+pub fn redacted(url: &Url) -> String {
+    if !url.query_pairs().any(|(k, _)| k == "listen_key") {
+        return url.to_string();
+    }
+    let mut clean = url.clone();
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(k, v)| {
+            let v = if k == "listen_key" {
+                "REDACTED".into()
+            } else {
+                v
+            };
+            (k.into_owned(), v.into_owned())
+        })
+        .collect();
+    clean
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    clean.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redaction_hides_listen_key() {
+        let url: Url = "https://prem2.di.fm/shows/x/ep.mp4?foo=1&listen_key=sekrit"
+            .parse()
+            .expect("valid url");
+        let shown = redacted(&url);
+        assert!(!shown.contains("sekrit"));
+        assert!(shown.contains("listen_key=REDACTED"));
+        assert!(shown.contains("foo=1"));
+    }
+
+    #[test]
+    fn redaction_leaves_clean_urls_alone() {
+        let url: Url = "https://api.audioaddict.com/v1/di/shows/x"
+            .parse()
+            .expect("valid url");
+        assert_eq!(redacted(&url), url.to_string());
     }
 }

@@ -28,6 +28,8 @@ url = { version = "2", features = ["serde"] }
 jiff = "0.2"
 etcetera = "0.8"
 async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+wiremock = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

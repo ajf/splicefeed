@@ -1,0 +1,455 @@
+{
+  "id": 10506954,
+  "name": "Melodik Revolution",
+  "description": "Tune in every 1st Sunday of the month for 2 hours of nonstop Trance, with Mark Pledger (http://www.facebook.com/markpledger.official) and on occasion his special guest!!\n",
+  "duration": 7200,
+  "tagline": "with Mark Pledger",
+  "active": true,
+  "artists_tagline": "with Mark Pledger",
+  "description_html": "<p>Tune in every <strong>1st Sunday</strong> of the month for 2 hours of nonstop Trance, with <a href=\"http://www.facebook.com/markpledger.official\" target=\"_blank\">Mark Pledger</a> and on occasion his special guest!!</p>\n",
+  "images": {
+    "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+    "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+    "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+    "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+    "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+  },
+  "human_readable_schedule": [
+    "Every 1st Sunday of the month"
+  ],
+  "next_start_at": "2026-08-02T14:00:00-04:00",
+  "next_end_at": "2026-08-02T16:00:00-04:00",
+  "most_recent_events": [
+    {
+      "id": 203329,
+      "duration": 7200,
+      "name": "162",
+      "show_id": 10506954,
+      "slug": "162",
+      "start_at": "2026-07-05T14:00:00-04:00",
+      "end_at": "2026-07-05T16:00:00-04:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3161835,
+          "content": {
+            "length": 7200.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 202691,
+      "duration": 7200,
+      "name": "161",
+      "show_id": 10506954,
+      "slug": "161",
+      "start_at": "2026-06-07T14:00:00-04:00",
+      "end_at": "2026-06-07T16:00:00-04:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3159664,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 201658,
+      "duration": 7200,
+      "name": "160",
+      "show_id": 10506954,
+      "slug": "160",
+      "start_at": "2026-05-03T14:00:00-04:00",
+      "end_at": "2026-05-03T16:00:00-04:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3153505,
+          "content": {
+            "length": 7200.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 200645,
+      "duration": 7200,
+      "name": "159",
+      "show_id": 10506954,
+      "slug": "159",
+      "start_at": "2026-04-05T14:00:00-04:00",
+      "end_at": "2026-04-05T16:00:00-04:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "<p><strong>Places around the world that DO NOT move clocks:</strong>  All Trance channel shows will air 1 hour earlier than they have been lately, now through 24 October 2026.</p>\n",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3136882,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 199855,
+      "duration": 7200,
+      "name": "158",
+      "show_id": 10506954,
+      "slug": "158",
+      "start_at": "2026-03-01T14:00:00-05:00",
+      "end_at": "2026-03-01T16:00:00-05:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3134944,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 198963,
+      "duration": 7200,
+      "name": "157",
+      "show_id": 10506954,
+      "slug": "157",
+      "start_at": "2026-02-01T14:00:00-05:00",
+      "end_at": "2026-02-01T16:00:00-05:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3132918,
+          "content": {
+            "length": 7200.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 198043,
+      "duration": 7200,
+      "name": "156",
+      "show_id": 10506954,
+      "slug": "156",
+      "start_at": "2026-01-04T14:00:00-05:00",
+      "end_at": "2026-01-04T16:00:00-05:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3131206,
+          "content": {
+            "length": 7200.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 196905,
+      "duration": 7200,
+      "name": "155",
+      "show_id": 10506954,
+      "slug": "155",
+      "start_at": "2025-12-07T14:00:00-05:00",
+      "end_at": "2025-12-07T16:00:00-05:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3129522,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 195715,
+      "duration": 7200,
+      "name": "154",
+      "show_id": 10506954,
+      "slug": "154",
+      "start_at": "2025-11-02T14:00:00-05:00",
+      "end_at": "2025-11-02T16:00:00-05:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "<p><strong>Places that do NOT move clocks for summer/winter time:</strong>  All Trance channel shows will air 1 hour later than they had been for the summer, now through late March 2026.</p>\n",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3127424,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    },
+    {
+      "id": 194885,
+      "duration": 7200,
+      "name": "153",
+      "show_id": 10506954,
+      "slug": "153",
+      "start_at": "2025-10-05T14:00:00-04:00",
+      "end_at": "2025-10-05T16:00:00-04:00",
+      "subtitle": "",
+      "artists_tagline": "with Mark Pledger",
+      "description_html": "",
+      "show": {
+        "id": 10506954,
+        "name": "Melodik Revolution",
+        "artists_tagline": "with Mark Pledger",
+        "channel_id": 1,
+        "human_readable_schedule": [
+          "Every 1st Sunday of the month"
+        ],
+        "slug": "melodik-revolution",
+        "images": {
+          "vertical": "//cdn-images.audioaddict.com/5/5/c/c/5/1/55cc51aff0304599948303b55bf85b88.png{?size,height,width,quality,pad}",
+          "tall_banner": "//cdn-images.audioaddict.com/5/f/e/9/6/5/5fe965c5fee5992b82ce9de3b32a4529.png{?size,height,width,quality,pad}",
+          "horizontal_banner": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "default": "//cdn-images.audioaddict.com/4/5/8/8/a/f/4588afad919fd56340c7b0abb3d62361.png{?size,height,width,quality,pad}",
+          "compact": "//cdn-images.audioaddict.com/6/6/9/9/1/1/669911f78243a58ec5b2a0724de32ba5.png{?size,height,width,quality,pad}"
+        }
+      },
+      "tracks": [
+        {
+          "id": 3125423,
+          "content": {
+            "length": 7199.0
+          }
+        }
+      ]
+    }
+  ],
+  "slug": "melodik-revolution",
+  "upcoming_event": null,
+  "ondemand_episode_count": 25,
+  "channels": [
+    {
+      "id": 1,
+      "name": "Trance",
+      "key": "trance",
+      "ad_dfp_unit_id": "radio_di_trance",
+      "description_short": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+      "description_long": "Trance is pure, emotive dance music which embraces incredible melodies, future-facing production and energetic anthems that have made it a pillar of electronic music worldwide. Its instantly recognizable 4/4 beat combines with rifting and psychedelic qualities that draw fans to the dancefloor and leave them begging for more at the end of the night.  In addition to 24/7 streaming, this channel brings you exclusive, and unique Mix Shows from the top DJs in Trance including Armin van Buuren, Above & Beyond, Ferry Corsten, Paul van Dyk, and many more. And have no fear, although Trance has gone mainstream, the DI.FM Trance channel brings together only the most epic sounding tracks from authentic artists without ever wandering near the realm of modern pop. ",
+      "description": "Emotive dance music which embraces incredible melodies, future-facing production and energetic anthems heard worldwide.",
+      "images": {
+        "horizontal_banner": "//cdn-images.audioaddict.com/c/b/8/a/7/3/cb8a735077fa5c7f5b3969ec7b03f30a.png{?size,height,width,quality,pad}",
+        "tall_banner": "//cdn-images.audioaddict.com/e/2/5/a/6/1/e25a61631d8e6235f62ca56e09a02e5a.png{?size,height,width,quality,pad}",
+        "vertical": "//cdn-images.audioaddict.com/f/6/2/4/6/e/f6246e44c1afa789cd7e477e2a806027.png{?size,height,width,quality,pad}",
+        "default": "//cdn-images.audioaddict.com/b/1/0/5/6/7/b10567777ad265dcc63816fa32396654.png{?size,height,width,quality,pad}",
+        "square": "//cdn-images.audioaddict.com/4/0/e/f/2/9/40ef29dd8b6a53f19608325284534e0d.png{?size,height,width,quality,pad}",
+        "compact": "//cdn-images.audioaddict.com/8/d/7/6/6/1/8d7661508fbf7ffb76654c05a017d1f3.png{?size,height,width,quality,pad}"
+      },
+      "channel_filter_ids": [
+        5,
+        89,
+        7,
+        118,
+        106,
+        1
+      ]
+    }
+  ],
+  "artists": [
+    {
+      "id": 3403,
+      "name": "Mark Pledger",
+      "slug": "mark-pledger",
+      "external_url": "http://www.markpledger.com",
+      "description": null,
+      "bio_short": null,
+      "bio_long": null,
+      "has_show": true,
+      "asset_id": null,
+      "created_at": "2011-11-22T15:09:56-05:00",
+      "images": {}
+    }
+  ],
+  "following": false,
+  "facebook_images": {
+    "vertical": "//cdn-api.audioaddict.com/v1/assets/image/55cc51aff0304599948303b55bf85b88?size=1200x628&pad=f8f8fa",
+    "tall_banner": "//cdn-api.audioaddict.com/v1/assets/image/5fe965c5fee5992b82ce9de3b32a4529?size=1200x628&pad=f8f8fa",
+    "horizontal_banner": "//cdn-api.audioaddict.com/v1/assets/image/4588afad919fd56340c7b0abb3d62361?size=1200x628&pad=f8f8fa",
+    "default": "//cdn-api.audioaddict.com/v1/assets/image/4588afad919fd56340c7b0abb3d62361?size=1200x628&pad=f8f8fa",
+    "compact": "//cdn-api.audioaddict.com/v1/assets/image/669911f78243a58ec5b2a0724de32ba5?size=1200x628&pad=f8f8fa"
+  },
+  "channel_filter_ids": [
+    5,
+    7,
+    118,
+    106,
+    1,
+    89
+  ]
+}
