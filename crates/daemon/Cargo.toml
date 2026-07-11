@@ -21,3 +21,4 @@ jiff.workspace = true
 futures-util.workspace = true
 humansize.workspace = true
 humantime.workspace = true
+colored.workspace = true

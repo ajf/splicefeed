@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
 use tracing_subscriber::EnvFilter;
 
@@ -189,34 +190,78 @@ async fn show_status(
     })
 }
 
+/// Width of the horizontal rules separating shows.
+const RULE_WIDTH: usize = 72;
+
+fn rule(glyph: &str) -> colored::ColoredString {
+    glyph.repeat(RULE_WIDTH).dimmed()
+}
+
 fn print_text(report: &StatusReport) {
     if report.shows.is_empty() {
-        println!("no shows in storage yet — run `splicefeed run --once` first\n");
+        println!(
+            "{}",
+            "no shows in storage yet — run `splicefeed run --once` first".yellow()
+        );
+        println!();
     }
     report.shows.iter().for_each(print_show_text);
-    report
-        .configured_never_synced
-        .iter()
-        .for_each(|slug| println!("{slug} — configured, never synced\n"));
+    report.configured_never_synced.iter().for_each(|slug| {
+        println!("{}", rule("─"));
+        println!(
+            "{} — {}",
+            slug.to_string().bold(),
+            "configured, never synced".yellow()
+        );
+        println!();
+    });
+
+    println!("{}", rule("═"));
     println!(
-        "total: {} file(s) on disk, {}",
+        "{}    {} file(s) on disk · {}",
+        "total".bold(),
         report.total_files,
         humansize::format_size(report.total_bytes, humansize::DECIMAL)
+            .bold()
+            .green(),
     );
-    println!("state db: {}", report.state_db.display());
-    println!("data dir: {}", report.data_dir.display());
+    println!(
+        "{} {}",
+        "state db".dimmed(),
+        report.state_db.display().to_string().dimmed()
+    );
+    println!(
+        "{} {}",
+        "data dir".dimmed(),
+        report.data_dir.display().to_string().dimmed()
+    );
 }
 
 fn print_show_text(show: &ShowStatus) {
-    println!("{} — {} [{}]", show.slug, show.title, show.provider);
+    println!("{}", rule("─"));
+    println!(
+        "{} — {} {}",
+        show.slug.to_string().bold().cyan(),
+        show.title.bold(),
+        format!("[{}]", show.provider).dimmed(),
+    );
+    println!();
+
     match (&show.last_poll_at, show.last_poll_ok) {
-        (Some(at), Some(true)) => println!("  last poll {} (ok)", stamp(at)),
+        (Some(at), Some(true)) => {
+            println!("  last poll {} {}", stamp(at).dimmed(), "(ok)".green());
+        }
         (Some(at), Some(false)) => println!(
-            "  last poll {} (FAILED: {})",
-            stamp(at),
-            show.last_error.as_deref().unwrap_or("unknown error"),
+            "  last poll {} {}",
+            stamp(at).dimmed(),
+            format!(
+                "(FAILED: {})",
+                show.last_error.as_deref().unwrap_or("unknown error")
+            )
+            .red()
+            .bold(),
         ),
-        _ => println!("  never polled"),
+        _ => println!("  {}", "never polled".yellow()),
     }
 
     let of_state = |wanted: fn(&EpisodeState) -> bool| {
@@ -235,54 +280,102 @@ fn print_show_text(show: &ShowStatus) {
         })
         .collect();
     let downloading = of_state(|state| matches!(state, EpisodeState::Downloading)).count();
-    println!(
-        "  {} cached ({}) · {} discovered · {} failed · {} pruned{}",
-        cached.len(),
-        humansize::format_size(show.cached_bytes, humansize::DECIMAL),
-        of_state(|state| matches!(state, EpisodeState::Discovered)).count(),
-        failed.len(),
-        of_state(|state| matches!(state, EpisodeState::Pruned)).count(),
-        // Only visible while a daemon is mid-download (or died there).
-        if downloading > 0 {
-            format!(" · {downloading} downloading")
+
+    let cached_part = {
+        let text = format!(
+            "{} cached ({})",
+            cached.len(),
+            humansize::format_size(show.cached_bytes, humansize::DECIMAL)
+        );
+        if cached.is_empty() {
+            text.dimmed()
         } else {
-            String::new()
-        },
-    );
+            text.green().bold()
+        }
+    };
+    let mut parts = vec![
+        cached_part.to_string(),
+        count_part(
+            of_state(|state| matches!(state, EpisodeState::Discovered)).count(),
+            "discovered",
+            |text| text.normal(),
+        ),
+        count_part(failed.len(), "failed", |text| text.red().bold()),
+        count_part(
+            of_state(|state| matches!(state, EpisodeState::Pruned)).count(),
+            "pruned",
+            |text| text.normal(),
+        ),
+    ];
+    if downloading > 0 {
+        // Only visible while a daemon is mid-download (or died there).
+        parts.push(format!("{downloading} downloading").yellow().to_string());
+    }
+    println!("  {}", parts.join(&format!(" {} ", "·".dimmed())));
+    println!();
 
     cached.iter().for_each(|episode| {
+        // Styled columns are pre-padded (width specs count ANSI escape
+        // bytes); unstyled ones take their widths here directly.
         println!(
-            "  {:>8}  {:>10}  {:<11}  {:>9}  downloaded {}",
-            episode.id,
-            episode.bytes.map_or("?".into(), |b| humansize::format_size(
-                b,
-                humansize::DECIMAL
-            )),
+            "  {}  {:>10}  {}  {:>9}  {}",
+            format!("{:>8}", episode.id).bold(),
             episode
-                .mime
-                .as_ref()
-                .map_or("mime?".into(), ToString::to_string),
+                .bytes
+                .map_or("?".into(), |b| humansize::format_size(
+                    b,
+                    humansize::DECIMAL
+                )),
+            format!(
+                "{:<11}",
+                episode
+                    .mime
+                    .as_ref()
+                    .map_or("mime?".into(), ToString::to_string)
+            )
+            .dimmed(),
             episode.duration_secs.map_or("?".into(), |secs| {
                 humantime::format_duration(std::time::Duration::from_secs(secs.into())).to_string()
             }),
-            episode.downloaded_at.as_ref().map_or("?".into(), stamp),
+            format!(
+                "downloaded {}",
+                episode.downloaded_at.as_ref().map_or("?".into(), stamp)
+            )
+            .dimmed(),
         );
         println!(
-            "           blake3 {}",
-            episode.blake3.as_deref().unwrap_or("?")
+            "           {}",
+            format!("blake3 {}", episode.blake3.as_deref().unwrap_or("?")).dimmed()
         );
         println!(
             "           {}",
             episode
                 .file_path
                 .as_deref()
-                .map_or("<file path missing>".into(), |p| p.display().to_string()),
+                .map_or("<file path missing>".into(), |p| p.display().to_string())
+                .cyan(),
         );
+        println!();
     });
     if !failed.is_empty() {
-        println!("  failed: {}", failed.join(", "));
+        println!("  {} {}", "failed:".red().bold(), failed.join(", ").red());
+        println!();
     }
-    println!();
+}
+
+/// A `"N label"` summary fragment: dimmed when zero, `highlight`ed when
+/// something is there to see.
+fn count_part(
+    count: usize,
+    label: &str,
+    highlight: impl FnOnce(&str) -> colored::ColoredString,
+) -> String {
+    let text = format!("{count} {label}");
+    if count == 0 {
+        text.dimmed().to_string()
+    } else {
+        highlight(&text).to_string()
+    }
 }
 
 fn stamp(at: &jiff::Timestamp) -> String {
