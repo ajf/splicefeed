@@ -24,6 +24,7 @@ humantime.workspace = true
 colored.workspace = true
 axum.workspace = true
 tower-http.workspace = true
+ratatui.workspace = true
 
 [dev-dependencies]
 reqwest.workspace = true

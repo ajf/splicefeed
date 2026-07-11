@@ -45,6 +45,9 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
+        /// Live-updating TUI view instead of a one-shot report.
+        #[arg(long, conflicts_with = "format")]
+        watch: bool,
     },
     /// Check cached audio files against the database: existence, size,
     /// and blake3 hash.
@@ -81,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
-        Command::Status { format } => status(cli.config.as_deref(), format).await,
+        Command::Status { format, watch } => status(cli.config.as_deref(), format, watch).await,
         Command::Verify { slug, fix, format } => {
             verify(cli.config.as_deref(), slug.as_deref(), fix, format).await
         }
@@ -100,9 +103,16 @@ enum OutputFormat {
 
 /// Report the library's state straight from the database — no daemon or
 /// socket involved, safe to run alongside one (WAL + busy timeout).
-async fn status(config_path: Option<&std::path::Path>, format: OutputFormat) -> anyhow::Result<()> {
+async fn status(
+    config_path: Option<&std::path::Path>,
+    format: OutputFormat,
+    watch: bool,
+) -> anyhow::Result<()> {
     let config = Config::load(config_path)?;
     let library = Library::open(config).await?;
+    if watch {
+        return splicefeed_daemon::tui::watch(&library).await;
+    }
 
     let report = report::status_report(&library).await?;
 

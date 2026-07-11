@@ -313,12 +313,16 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    then serves; the jittered scheduler is milestone 5. `write_feed`
    became `async` — it reads storage.)*
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
-6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (A
-   plain-text/JSON `status` that reads the database directly shipped
-   early, alongside milestone 3, as did `verify [SLUG] [--fix]` — checks
-   every cached file's existence, size, and blake3 against the DB and
-   re-downloads damage on `--fix`; milestone 6 upgrades `status` to the
-   live socket-fed view.)
+6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (Much
+   of this shipped early: plain-text/JSON `status` reading the database
+   directly (milestone 3), `verify [SLUG] [--fix]` — existence, size,
+   and blake3 of every cached file, re-downloading damage on `--fix` —
+   and a ratatui `status --watch` view (alongside milestone 4) that
+   re-reads the database every 2s: shows table, per-show episode table,
+   poll health. Milestone 6 proper is the control socket: it feeds this
+   same view the daemon's in-process state — in-flight downloads,
+   throughput, live events — which does not exist until the scheduler
+   runs in-daemon.)
 7. **Telemetry** — OTel/OTLP/Prometheus wiring (bridge risk re-checked here).
 8. **Packaging** — systemd unit, Podman quadlet, launchd plist, musl build,
    README (config reference, deployment, "when DI.FM changes their API").
