@@ -1,0 +1,43 @@
+# splicefeed configuration
+# Default location: ~/.config/splicefeed/config.toml
+# Override with --config or the SPLICEFEED_CONFIG env var.
+
+# Address the HTTP server binds to. Loopback by default — exposing this
+# beyond localhost (e.g. "0.0.0.0:8380") is your explicit choice.
+#bind = "127.0.0.1:8380"
+
+# Base URL written into feed enclosure/artwork URLs. Set this to how your
+# podcast app reaches the daemon; defaults to http://<bind>.
+#external_base_url = "http://nas.lan:8380"
+
+# Where SQLite state, audio, artwork, and the parse quarantine live.
+# Default: ~/.local/share/splicefeed (XDG data dir).
+#data_dir = "/srv/splicefeed"
+
+# Default poll interval for every show (humantime syntax: "30m", "2h", ...).
+# Each poll is jittered and rate-limited; per-show overrides below.
+#poll_interval = "30m"
+
+# Global retention. Both limits may be set; the stricter one wins.
+# Omit a field for "no limit". Per-show [shows.retention] overrides these.
+[retention]
+keep_last = 50
+#max_gb = 20.0
+
+# DI.FM premium credentials. The DIFM_LISTEN_KEY env var overrides this
+# value; one of the two is required if any show uses the difm provider.
+[auth.difm]
+#listen_key = "your-listen-key"
+
+# One [[shows]] block per followed show.
+[[shows]]
+slug = "melodik-revolution"
+#provider = "difm"          # default
+#title = "Melodik Revolution"       # feed title override
+#poll_interval = "1h"               # per-show override
+#artwork = "/path/to/art.jpg"       # local path or http(s):// URL
+#[shows.retention]
+#keep_last = 10
+
+[[shows]]
+slug = "anything-melodic"

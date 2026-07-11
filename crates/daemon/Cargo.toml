@@ -1,0 +1,17 @@
+[package]
+name = "splicefeed-daemon"
+version.workspace = true
+edition.workspace = true
+description = "splicefeed daemon: HTTP server, unix-socket control, status TUI, CLI"
+
+[[bin]]
+name = "splicefeed"
+path = "src/main.rs"
+
+[dependencies]
+splicefeed.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

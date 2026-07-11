@@ -1,0 +1,16 @@
+[package]
+name = "splicefeed-core"
+version.workspace = true
+edition.workspace = true
+description = "Domain types, config, storage, RSS generation, and IPC message types for splicefeed"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+secrecy.workspace = true
+figment.workspace = true
+humantime-serde.workspace = true
+url.workspace = true
+jiff.workspace = true
+etcetera.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "splicefeed"
+version.workspace = true
+edition.workspace = true
+description = "Turn DI.FM premium radio shows into podcast RSS feeds — embeddable library"
+
+[dependencies]
+splicefeed-core.workspace = true
+splicefeed-providers.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+
+[[example]]
+name = "sync_once"

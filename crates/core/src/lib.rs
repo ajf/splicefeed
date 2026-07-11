@@ -1,0 +1,15 @@
+//! Core library for splicefeed: domain types, configuration, and the IPC
+//! protocol shared between the daemon and the status TUI.
+//!
+//! This crate must never depend on `axum`, `ratatui`, `crossterm`, `clap`,
+//! or telemetry exporter crates — it records via facades, the binary
+//! exports. See `DESIGN.md` ("Workspace layout") for the boundary rule.
+//!
+//! Storage (SQLite), the download engine, retention, artwork caching, and
+//! RSS generation land here in milestones 3–4.
+
+#![deny(missing_docs)]
+
+pub mod config;
+pub mod domain;
+pub mod ipc;

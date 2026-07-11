@@ -1,0 +1,11 @@
+[package]
+name = "splicefeed-providers"
+version.workspace = true
+edition.workspace = true
+description = "Provider trait, registry, and the DI.FM/AudioAddict implementation for splicefeed"
+
+[dependencies]
+splicefeed-core.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+url.workspace = true
