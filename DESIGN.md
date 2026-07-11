@@ -185,6 +185,13 @@ download-then-prune every poll.
 
 ## Downloader
 
+- Discovery is bounded by `fetch_last` (global default + per-show
+  override, optional): only the newest N episodes are listed — the limit
+  is passed upstream as `per_page`, so a small window is also a small
+  request — and only episodes present in the current listing are
+  downloaded or retried. Old rows stay put, and an episode upstream
+  dropped can't retry forever. Distinct from retention: `fetch_last`
+  bounds what comes in, `keep_last`/`max_gb` bound what stays.
 - Polls per-show on its interval **with jitter**, conditional requests
   (`If-Modified-Since`/`ETag`) where upstream supports them, and a global
   polite rate limit — this is someone else's infrastructure.

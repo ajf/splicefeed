@@ -212,8 +212,14 @@ impl Provider for DifmProvider {
         Ok(show.into_meta(slug))
     }
 
-    async fn episodes(&self, slug: &ShowSlug) -> Result<Vec<EpisodeMeta>, ProviderError> {
-        let per_page = self.per_page.to_string();
+    async fn episodes(
+        &self,
+        slug: &ShowSlug,
+        limit: Option<std::num::NonZeroU32>,
+    ) -> Result<Vec<EpisodeMeta>, ProviderError> {
+        let per_page = limit
+            .map_or(self.per_page, std::num::NonZeroU32::get)
+            .to_string();
         let url = self.endpoint(
             &["shows", slug.as_str(), "episodes"],
             &[("page", "1"), ("per_page", per_page.as_str())],
@@ -244,6 +250,11 @@ impl Provider for DifmProvider {
             })
             .collect();
         episodes.sort_by_key(|e| std::cmp::Reverse(e.published_at));
+        // The API is trusted to honor per_page but not relied on: the
+        // limit is a contract with our caller, so enforce it here too.
+        if let Some(limit) = limit {
+            episodes.truncate(limit.get() as usize);
+        }
         Ok(episodes)
     }
 

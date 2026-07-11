@@ -70,6 +70,8 @@ pub struct Config {
     #[serde(default = "defaults::download_concurrency")]
     download_concurrency: std::num::NonZeroUsize,
     #[serde(default)]
+    fetch_last: Option<std::num::NonZeroU32>,
+    #[serde(default)]
     retention: Retention,
     #[serde(default)]
     auth: Auth,
@@ -186,6 +188,13 @@ impl Config {
         self.download_concurrency
     }
 
+    /// Default bound on how many of a show's newest episodes a sync
+    /// considers (`None` = the provider's natural listing window).
+    /// Per-show overrides layer on top; see [`ShowConfig::fetch_last`].
+    pub fn fetch_last(&self) -> Option<std::num::NonZeroU32> {
+        self.fetch_last
+    }
+
     /// Global retention policy (per-show overrides layer on top).
     pub fn retention(&self) -> &Retention {
         &self.retention
@@ -260,6 +269,8 @@ pub struct ShowConfig {
     #[serde(default, with = "humantime_serde")]
     poll_interval: Option<Duration>,
     #[serde(default)]
+    fetch_last: Option<std::num::NonZeroU32>,
+    #[serde(default)]
     artwork: Option<ArtworkOverride>,
     #[serde(default)]
     retention: Option<Retention>,
@@ -284,6 +295,16 @@ impl ShowConfig {
     /// Effective poll interval given the global default.
     pub fn poll_interval(&self, global_default: Duration) -> Duration {
         self.poll_interval.unwrap_or(global_default)
+    }
+
+    /// Effective bound on how many of the newest episodes a sync
+    /// considers, given the global default. `None` means the provider's
+    /// natural listing window.
+    pub fn fetch_last(
+        &self,
+        global_default: Option<std::num::NonZeroU32>,
+    ) -> Option<std::num::NonZeroU32> {
+        self.fetch_last.or(global_default)
     }
 
     /// Artwork override, if any (beats provider artwork).
@@ -458,6 +479,7 @@ mod tests {
             bind = "0.0.0.0:9000"
             external_base_url = "http://nas.lan:9000"
             poll_interval = "1h"
+            fetch_last = 10
 
             [retention]
             keep_last = 50
@@ -469,9 +491,13 @@ mod tests {
             [[shows]]
             slug = "melodik-revolution"
             poll_interval = "15m"
+            fetch_last = 3
             artwork = "https://example.com/art.jpg"
             [shows.retention]
             keep_last = 5
+
+            [[shows]]
+            slug = "anything-melodic"
             "#,
         );
 
@@ -485,6 +511,14 @@ mod tests {
         let effective = show.retention(config.retention());
         assert_eq!(effective.keep_last(), Some(5));
         assert_eq!(effective.max_bytes(), Some(20_000_000_000));
+
+        // fetch_last layers like poll_interval: per-show beats global.
+        let global = config.fetch_last();
+        assert_eq!(show.fetch_last(global).map(|n| n.get()), Some(3));
+        assert_eq!(
+            config.shows()[1].fetch_last(global).map(|n| n.get()),
+            Some(10)
+        );
     }
 
     // The from_toml_str tests must stay robust against DIFM_API_KEY /

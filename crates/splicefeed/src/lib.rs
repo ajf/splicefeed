@@ -108,10 +108,11 @@ impl Library {
     pub async fn sync(&self, slug: &ShowSlug) -> Result<SyncReport, LibraryError> {
         let show = self.show_config(slug)?;
         let provider = self.providers.get(show.provider())?;
+        let limit = show.fetch_last(self.config.fetch_last());
 
         let listing = async {
             let meta = provider.show(slug).await?;
-            let episodes = provider.episodes(slug).await?;
+            let episodes = provider.episodes(slug, limit).await?;
             Ok::<_, ProviderError>((meta, episodes))
         }
         .await;
@@ -127,12 +128,21 @@ impl Library {
         self.storage.upsert_show(&meta, show.provider()).await?;
         let discovered = self.storage.discover(slug, &episodes).await?;
 
+        // Only episodes in the current (possibly fetch_last-bounded)
+        // listing are downloaded or retried: older Discovered/Failed rows
+        // stay put instead of being fetched outside the window — and a
+        // Failed episode that upstream dropped can't retry forever.
+        let listed: std::collections::HashSet<&EpisodeId> =
+            episodes.iter().map(|ep| &ep.id).collect();
         let pending: Vec<EpisodeRecord> = self
             .storage
             .episodes(slug)
             .await?
             .into_iter()
-            .filter(|ep| matches!(ep.state, EpisodeState::Discovered | EpisodeState::Failed(_)))
+            .filter(|ep| {
+                listed.contains(&ep.id)
+                    && matches!(ep.state, EpisodeState::Discovered | EpisodeState::Failed(_))
+            })
             .collect();
         let downloaded = futures_util::stream::iter(
             pending

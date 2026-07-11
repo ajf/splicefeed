@@ -21,6 +21,12 @@
 # How many episode downloads may run at once, across all shows.
 #download_concurrency = 2
 
+# Only look at each show's newest N episodes when syncing (discovery AND
+# download/retry). Unset = the provider's natural listing window (25 for
+# DI.FM). Distinct from retention: fetch_last bounds what comes in,
+# keep_last/max_gb bound what stays. Per-show override below.
+fetch_last = 2
+
 # Global retention. Both limits may be set; the stricter one wins.
 # Omit a field for "no limit". Per-show [shows.retention] overrides these.
 [retention]
@@ -49,6 +55,7 @@ slug = "melodik-revolution"
 #provider = "difm"          # default
 #title = "Melodik Revolution"       # feed title override
 #poll_interval = "1h"               # per-show override
+#fetch_last = 3                     # per-show override
 #artwork = "/path/to/art.jpg"       # local path or http(s):// URL
 #[shows.retention]
 #keep_last = 10

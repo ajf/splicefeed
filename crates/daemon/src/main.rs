@@ -100,7 +100,9 @@ async fn probe(config_path: Option<&std::path::Path>, slug: &str) -> anyhow::Res
         Err(err) => println!("show:      FAILED  {err}"),
     }
 
-    let episodes = match provider.episodes(&slug).await {
+    // The probe always looks at the provider's full natural window —
+    // it diagnoses upstream, not the fetch_last config.
+    let episodes = match provider.episodes(&slug, None).await {
         Ok(episodes) => {
             println!(
                 "episodes:  OK  {} parsed (drifted entries, if any, are quarantined and warned above)",

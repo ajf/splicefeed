@@ -78,7 +78,7 @@ async fn episode_listing_parses_newest_first() {
 
     let provider = provider_for(&server, &tmp);
     let episodes = provider
-        .episodes(&slug("melodik-revolution"))
+        .episodes(&slug("melodik-revolution"), None)
         .await
         .expect("parses");
 
@@ -93,6 +93,33 @@ async fn episode_listing_parses_newest_first() {
         episodes[0].published_at >= episodes[1].published_at,
         "must be newest first"
     );
+    cleanup(tmp);
+}
+
+#[tokio::test]
+async fn episode_limit_shrinks_the_request_and_the_result() {
+    let server = MockServer::start().await;
+    let tmp = tempdir();
+    // Only answers per_page=1 — proves the limit reaches the API. The
+    // body still carries two entries to prove local truncation too.
+    Mock::given(method("GET"))
+        .and(path("/shows/melodik-revolution/episodes"))
+        .and(query_param("per_page", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(fixture("episodes_page1.json")))
+        .mount(&server)
+        .await;
+
+    let provider = provider_for(&server, &tmp);
+    let episodes = provider
+        .episodes(
+            &slug("melodik-revolution"),
+            Some(std::num::NonZeroU32::new(1).expect("nonzero")),
+        )
+        .await
+        .expect("parses");
+
+    assert_eq!(episodes.len(), 1, "truncated to the limit");
+    assert_eq!(episodes[0].id.as_str(), "162", "newest survives");
     cleanup(tmp);
 }
 
@@ -114,7 +141,7 @@ async fn one_drifted_entry_is_quarantined_not_fatal() {
 
     let provider = provider_for(&server, &tmp);
     let episodes = provider
-        .episodes(&slug("melodik-revolution"))
+        .episodes(&slug("melodik-revolution"), None)
         .await
         .expect("not fatal");
 

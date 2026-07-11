@@ -82,11 +82,18 @@ pub trait Provider: Send + Sync {
     /// Fetch show-level metadata.
     async fn show(&self, slug: &ShowSlug) -> Result<ShowMeta, ProviderError>;
 
-    /// List recent episodes for a show, newest first.
+    /// List recent episodes for a show, newest first. `limit` bounds the
+    /// listing to the newest N episodes (`None` = the provider's natural
+    /// window); providers pass it upstream where the API allows, so a
+    /// small limit also means a small request.
     ///
     /// Individually unparseable entries are quarantined and skipped, never
     /// fatal — a partial listing beats no listing.
-    async fn episodes(&self, slug: &ShowSlug) -> Result<Vec<EpisodeMeta>, ProviderError>;
+    async fn episodes(
+        &self,
+        slug: &ShowSlug,
+        limit: Option<std::num::NonZeroU32>,
+    ) -> Result<Vec<EpisodeMeta>, ProviderError>;
 
     /// Resolve the downloadable audio URL for one episode of a show
     /// (credentials included — sensitive, redact before logging).

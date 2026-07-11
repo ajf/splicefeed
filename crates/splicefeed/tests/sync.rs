@@ -90,9 +90,18 @@ async fn mount_api(server: &MockServer) {
 }
 
 async fn open_library(server: &MockServer, data_dir: &std::path::Path) -> Library {
+    open_library_with(server, data_dir, "").await
+}
+
+async fn open_library_with(
+    server: &MockServer,
+    data_dir: &std::path::Path,
+    extra_toml: &str,
+) -> Library {
     let config = Config::from_toml_str(&format!(
         r#"
         data_dir = "{data}"
+        {extra_toml}
 
         [retention]
         keep_last = 1
@@ -140,6 +149,26 @@ async fn sync_discovers_downloads_and_prunes() {
     assert_eq!(report.pruned, 0);
     assert!(media.join("162.m4a").exists());
     assert!(!media.join("161.m4a").exists());
+}
+
+#[tokio::test]
+async fn fetch_last_bounds_discovery_and_download() {
+    let server = MockServer::start().await;
+    mount_api(&server).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let library = open_library_with(&server, dir.path(), "fetch_last = 1").await;
+    let slug: ShowSlug = "test-show".parse().expect("valid slug");
+
+    let report = library.sync(&slug).await.expect("sync succeeds");
+    // Upstream lists two episodes; only the newest is even discovered,
+    // so nothing needs pruning afterwards.
+    assert_eq!(report.discovered, 1);
+    assert_eq!(report.downloaded, 1);
+    assert_eq!(report.pruned, 0);
+
+    let media = dir.path().join("media").join("test-show");
+    assert!(media.join("162.m4a").exists(), "newest downloaded");
+    assert!(!media.join("161.m4a").exists(), "older never fetched");
 }
 
 #[tokio::test]
