@@ -21,7 +21,7 @@ use backon::{ExponentialBuilder, Retryable};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
-use crate::domain::{AudioSource, ErrorClass, redacted};
+use crate::domain::{AudioMime, AudioSource, ErrorClass, RedactedUrl};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Timeout between chunks, not for the whole (potentially very long)
@@ -39,7 +39,7 @@ pub enum DownloadError {
     #[error("network failure downloading {url}: {reason}")]
     Network {
         /// The URL, credentials redacted.
-        url: String,
+        url: RedactedUrl,
         /// What went wrong.
         reason: String,
     },
@@ -49,13 +49,13 @@ pub enum DownloadError {
         /// The HTTP status code.
         status: u16,
         /// The URL, credentials redacted.
-        url: String,
+        url: RedactedUrl,
     },
     /// Fewer (or more) bytes arrived than upstream promised.
     #[error("transfer of {url} truncated: expected {expected} bytes, got {actual}")]
     Truncated {
         /// The URL, credentials redacted.
-        url: String,
+        url: RedactedUrl,
         /// Bytes promised by `Content-Length` (or the provider).
         expected: u64,
         /// Bytes actually received.
@@ -97,11 +97,11 @@ impl DownloadError {
 pub struct Downloaded {
     /// Verified size in bytes.
     pub bytes: u64,
-    /// blake3 hash (hex), computed while streaming.
-    pub blake3: String,
+    /// blake3 hash, computed while streaming.
+    pub blake3: blake3::Hash,
     /// MIME type: the response `Content-Type` when it looks like audio,
     /// otherwise whatever the provider predicted.
-    pub mime: Option<String>,
+    pub mime: Option<AudioMime>,
 }
 
 /// Streams audio files to disk. Cheap to clone; clones share the HTTP
@@ -140,7 +140,7 @@ impl Downloader {
             .acquire()
             .await
             .unwrap_or_else(|_| unreachable!("semaphore is never closed"));
-        let shown = redacted(&source.url);
+        let shown = RedactedUrl::from(&source.url);
 
         (|| self.attempt(source, dest, &shown))
             .retry(
@@ -159,10 +159,10 @@ impl Downloader {
         &self,
         source: &AudioSource,
         dest: &Path,
-        shown: &str,
+        shown: &RedactedUrl,
     ) -> Result<Downloaded, DownloadError> {
         let network = |e: reqwest::Error| DownloadError::Network {
-            url: shown.to_owned(),
+            url: shown.clone(),
             reason: e.without_url().to_string(),
         };
 
@@ -176,7 +176,7 @@ impl Downloader {
         if !status.is_success() {
             return Err(DownloadError::Status {
                 status: status.as_u16(),
-                url: shown.to_owned(),
+                url: shown.clone(),
             });
         }
         let expected = response.content_length().or(source.bytes);
@@ -185,7 +185,7 @@ impl Downloader {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .filter(|v| v.starts_with("audio/"))
-            .map(str::to_owned);
+            .map(AudioMime::from);
 
         let dir = dest.parent().unwrap_or(Path::new(".")).to_owned();
         let disk = |path: &Path| {
@@ -218,7 +218,7 @@ impl Downloader {
             && written != expected
         {
             return Err(DownloadError::Truncated {
-                url: shown.to_owned(),
+                url: shown.clone(),
                 expected,
                 actual: written,
             });
@@ -238,7 +238,7 @@ impl Downloader {
 
         Ok(Downloaded {
             bytes: written,
-            blake3: hasher.finalize().to_hex().to_string(),
+            blake3: hasher.finalize(),
             mime: content_type.or_else(|| source.mime.clone()),
         })
     }
@@ -271,7 +271,7 @@ mod tests {
     fn source(url: &str) -> AudioSource {
         AudioSource {
             url: url.parse().expect("valid url"),
-            mime: Some("audio/mp4".into()),
+            mime: Some(AudioMime::Mp4),
             bytes: None,
         }
     }
@@ -302,8 +302,8 @@ mod tests {
             .expect("download succeeds");
 
         assert_eq!(got.bytes, body.len() as u64);
-        assert_eq!(got.blake3, blake3::hash(&body).to_hex().to_string());
-        assert_eq!(got.mime.as_deref(), Some("audio/mp4"));
+        assert_eq!(got.blake3, blake3::hash(&body));
+        assert_eq!(got.mime, Some(AudioMime::Mp4));
         assert_eq!(std::fs::read(&dest).expect("file exists"), body);
     }
 

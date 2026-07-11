@@ -36,15 +36,15 @@ impl Quarantine {
         Ok(path)
     }
 
-    /// Like [`write`](Self::write), but returns a displayable path and
-    /// downgrades I/O failures to a marker string — quarantining must never
-    /// introduce a second failure mode into the parse path.
-    pub fn write_or_note(&self, label: &str, payload: &str) -> String {
+    /// Like [`write`](Self::write), but downgrades I/O failures to a
+    /// logged `None` — quarantining must never introduce a second failure
+    /// mode into the parse path.
+    pub fn write_or_note(&self, label: &str, payload: &str) -> Option<PathBuf> {
         match self.write(label, payload) {
-            Ok(path) => path.display().to_string(),
+            Ok(path) => Some(path),
             Err(err) => {
                 tracing::error!(%err, label, "failed to write quarantine file");
-                format!("<quarantine write failed: {err}>")
+                None
             }
         }
     }

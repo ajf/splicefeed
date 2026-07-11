@@ -2,7 +2,7 @@
 //! wiremock. Fixtures were captured live on 2026-07-11; `splicefeed probe`
 //! is the tool for noticing when the live API drifts away from them.
 
-use splicefeed_core::domain::{ApiKey, ListenKey, ShowSlug};
+use splicefeed_core::domain::{ApiKey, AudioMime, ListenKey, ShowSlug};
 use splicefeed_providers::difm::DifmProvider;
 use splicefeed_providers::{Provider, ProviderError};
 use wiremock::matchers::{method, path, query_param};
@@ -149,7 +149,11 @@ async fn garbage_payload_is_quarantined_and_errors() {
     else {
         panic!("expected Parse error, got: {err}");
     };
-    assert!(std::path::Path::new(quarantine_path).is_file());
+    assert!(
+        quarantine_path
+            .as_deref()
+            .is_some_and(std::path::Path::is_file)
+    );
     cleanup(tmp);
 }
 
@@ -259,7 +263,7 @@ async fn resolve_audio_leaves_signed_playback_url_untouched() {
         !audio.url.query_pairs().any(|(k, _)| k == "listen_key"),
         "must not append listen_key to a signed URL (breaks the auth HMAC)"
     );
-    assert_eq!(audio.mime.as_deref(), Some("audio/mpeg"));
+    assert_eq!(audio.mime, Some(AudioMime::Mpeg));
     cleanup(tmp);
 }
 
@@ -292,9 +296,11 @@ async fn resolve_audio_appends_listen_key_to_asset() {
             .query()
             .is_some_and(|q| q.contains("listen_key=test-key"))
     );
-    assert_eq!(audio.mime.as_deref(), Some("audio/mp4"));
+    assert_eq!(audio.mime, Some(AudioMime::Mp4));
     assert!(
-        !splicefeed_providers::redacted(&audio.url).contains("test-key"),
+        !splicefeed_providers::redacted(&audio.url)
+            .to_string()
+            .contains("test-key"),
         "redaction must hide the key"
     );
     cleanup(tmp);

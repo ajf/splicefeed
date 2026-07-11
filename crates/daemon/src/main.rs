@@ -133,7 +133,10 @@ async fn probe(config_path: Option<&std::path::Path>, slug: &str) -> anyhow::Res
                 println!(
                     "audio:     OK  {} ({}, {})",
                     splicefeed::redacted(&audio.url),
-                    audio.mime.as_deref().unwrap_or("mime unknown"),
+                    audio
+                        .mime
+                        .as_ref()
+                        .map_or("mime unknown".into(), ToString::to_string),
                     audio
                         .bytes
                         .map_or("size unknown".into(), |b| format!("{b} bytes")),
@@ -177,7 +180,7 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
 /// One failing show never stops the others; any failure makes the exit
 /// status non-zero so cron/systemd notice.
 async fn sync_all_once(library: &Library) -> anyhow::Result<()> {
-    let mut failed = Vec::new();
+    let mut failed: Vec<&splicefeed::ShowSlug> = Vec::new();
     for show in library.config().shows() {
         let slug = show.slug();
         match library.sync(slug).await {
@@ -190,12 +193,19 @@ async fn sync_all_once(library: &Library) -> anyhow::Result<()> {
             ),
             Err(err) => {
                 tracing::error!(show = %slug, error = %err, "sync failed");
-                failed.push(slug.to_string());
+                failed.push(slug);
             }
         }
     }
     if !failed.is_empty() {
-        bail!("sync failed for {}", failed.join(", "));
+        bail!(
+            "sync failed for {}",
+            failed
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
     Ok(())
 }

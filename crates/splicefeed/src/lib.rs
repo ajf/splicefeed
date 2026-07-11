@@ -30,8 +30,8 @@ use splicefeed_core::storage::{CachedFile, EpisodeRecord, Storage};
 
 pub use splicefeed_core::config::{ArtworkOverride, Config, ConfigError, Retention, ShowConfig};
 pub use splicefeed_core::domain::{
-    ApiKey, AudioSource, EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ListenKey, Mode,
-    ShowMeta, ShowSlug, redacted,
+    ApiKey, AudioMime, AudioSource, EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ListenKey,
+    Mode, RedactedUrl, ShowMeta, ShowSlug, redacted,
 };
 pub use splicefeed_core::download::DownloadError;
 pub use splicefeed_core::ipc;
@@ -296,12 +296,8 @@ impl Library {
 /// File extension for an audio source, from its MIME type when known,
 /// else from the URL path, else a neutral fallback.
 fn extension_for(source: &AudioSource) -> &str {
-    match source.mime.as_deref() {
-        Some("audio/mpeg") => return "mp3",
-        Some("audio/mp4" | "audio/x-m4a") => return "m4a",
-        Some("audio/aac") => return "aac",
-        Some("audio/ogg") => return "ogg",
-        _ => {}
+    if let Some(ext) = source.mime.as_ref().and_then(AudioMime::extension) {
+        return ext;
     }
     match source.url.path().rsplit('.').next() {
         Some(ext)

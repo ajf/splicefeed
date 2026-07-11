@@ -9,7 +9,7 @@
 //! the raw payload — a schema change must never take down the feeds.
 
 use serde::Deserialize;
-use splicefeed_core::domain::{EpisodeMeta, ShowMeta, ShowSlug};
+use splicefeed_core::domain::{AudioMime, EpisodeMeta, ShowMeta, ShowSlug};
 use url::Url;
 
 /// A show, from `GET shows/<slug>`.
@@ -192,12 +192,12 @@ impl Episode {
 }
 
 /// MIME type for an audio URL, judged by extension.
-pub fn mime_for(url: &Url) -> Option<&'static str> {
+pub fn mime_for(url: &Url) -> Option<AudioMime> {
     match url.path().rsplit('.').next()? {
-        "mp3" => Some("audio/mpeg"),
-        "mp4" | "m4a" => Some("audio/mp4"),
-        "aac" => Some("audio/aac"),
-        "ogg" | "oga" => Some("audio/ogg"),
+        "mp3" => Some(AudioMime::Mpeg),
+        "mp4" | "m4a" => Some(AudioMime::Mp4),
+        "aac" => Some(AudioMime::Aac),
+        "ogg" | "oga" => Some(AudioMime::Ogg),
         _ => None,
     }
 }
@@ -280,6 +280,6 @@ mod tests {
         };
         let url = episode.audio_url().expect("finds asset");
         assert_eq!(url.as_str(), "https://prem2.di.fm/shows/x/ep162.mp4");
-        assert_eq!(mime_for(&url), Some("audio/mp4"));
+        assert_eq!(mime_for(&url), Some(AudioMime::Mp4));
     }
 }

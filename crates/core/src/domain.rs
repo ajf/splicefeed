@@ -338,7 +338,7 @@ pub struct AudioSource {
     /// Fully resolved URL, credentials included.
     pub url: Url,
     /// MIME type, if known ahead of the download.
-    pub mime: Option<String>,
+    pub mime: Option<AudioMime>,
     /// Size in bytes, if known ahead of the download.
     pub bytes: Option<u64>,
 }
@@ -346,34 +346,112 @@ pub struct AudioSource {
 /// Query parameters that carry credentials and must never reach a log.
 const SECRET_PARAMS: [&str; 3] = ["listen_key", "api_key", "audio_token"];
 
-/// A URL rendered for logs: the value of any credential query parameter
-/// (`listen_key`, `api_key`, `audio_token`) is replaced with `REDACTED`.
-/// Every URL that ends up in a log line or an error message goes through
-/// this.
-pub fn redacted(url: &Url) -> String {
-    if !url
-        .query_pairs()
-        .any(|(k, _)| SECRET_PARAMS.contains(&k.as_ref()))
-    {
-        return url.to_string();
+/// A URL rendered safe for logs and error messages: the value of any
+/// credential query parameter (`listen_key`, `api_key`, `audio_token`) is
+/// replaced with `REDACTED`.
+///
+/// The type makes "already sanitized" part of a signature instead of a
+/// comment: anything that logs or stores a displayable URL carries this,
+/// never a bare `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedactedUrl(Url);
+
+impl From<&Url> for RedactedUrl {
+    fn from(url: &Url) -> Self {
+        if !url
+            .query_pairs()
+            .any(|(k, _)| SECRET_PARAMS.contains(&k.as_ref()))
+        {
+            return Self(url.clone());
+        }
+        let mut clean = url.clone();
+        let pairs: Vec<(String, String)> = url
+            .query_pairs()
+            .map(|(k, v)| {
+                let v = if SECRET_PARAMS.contains(&k.as_ref()) {
+                    "REDACTED".into()
+                } else {
+                    v
+                };
+                (k.into_owned(), v.into_owned())
+            })
+            .collect();
+        clean
+            .query_pairs_mut()
+            .clear()
+            .extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        Self(clean)
     }
-    let mut clean = url.clone();
-    let pairs: Vec<(String, String)> = url
-        .query_pairs()
-        .map(|(k, v)| {
-            let v = if SECRET_PARAMS.contains(&k.as_ref()) {
-                "REDACTED".into()
-            } else {
-                v
-            };
-            (k.into_owned(), v.into_owned())
+}
+
+impl fmt::Display for RedactedUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// [`RedactedUrl`] as a free function, for call sites that read better
+/// with a verb.
+pub fn redacted(url: &Url) -> RedactedUrl {
+    RedactedUrl::from(url)
+}
+
+/// MIME type of an episode's audio.
+///
+/// The formats a podcast feed realistically carries are a known set —
+/// which buys exhaustive matching and one authoritative mime→extension
+/// mapping — while [`AudioMime::Other`] keeps upstream's open set from
+/// ever becoming a parse failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AudioMime {
+    /// `audio/mpeg` (MP3).
+    Mpeg,
+    /// `audio/mp4` (M4A/AAC in MP4).
+    Mp4,
+    /// `audio/aac` (raw AAC).
+    Aac,
+    /// `audio/ogg` (Vorbis/Opus).
+    Ogg,
+    /// Anything upstream sends that we don't recognize; passed through
+    /// verbatim to feed enclosures.
+    Other(String),
+}
+
+impl AudioMime {
+    /// Canonical file extension, when this is a format we know.
+    pub fn extension(&self) -> Option<&'static str> {
+        match self {
+            Self::Mpeg => Some("mp3"),
+            Self::Mp4 => Some("m4a"),
+            Self::Aac => Some("aac"),
+            Self::Ogg => Some("ogg"),
+            Self::Other(_) => None,
+        }
+    }
+}
+
+impl From<&str> for AudioMime {
+    fn from(raw: &str) -> Self {
+        match raw {
+            "audio/mpeg" | "audio/mp3" => Self::Mpeg,
+            "audio/mp4" | "audio/x-m4a" => Self::Mp4,
+            "audio/aac" => Self::Aac,
+            "audio/ogg" => Self::Ogg,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+}
+
+impl fmt::Display for AudioMime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Mpeg => "audio/mpeg",
+            Self::Mp4 => "audio/mp4",
+            Self::Aac => "audio/aac",
+            Self::Ogg => "audio/ogg",
+            Self::Other(raw) => raw,
         })
-        .collect();
-    clean
-        .query_pairs_mut()
-        .clear()
-        .extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-    clean.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -399,7 +477,7 @@ mod tests {
         let url: Url = "https://prem2.di.fm/shows/x/ep.mp4?foo=1&listen_key=sekrit"
             .parse()
             .expect("valid url");
-        let shown = redacted(&url);
+        let shown = redacted(&url).to_string();
         assert!(!shown.contains("sekrit"));
         assert!(shown.contains("listen_key=REDACTED"));
         assert!(shown.contains("foo=1"));
@@ -410,7 +488,7 @@ mod tests {
         let url: Url = "https://api.audioaddict.com/v1/di/shows/x/episodes/1?api_key=sekrit"
             .parse()
             .expect("valid url");
-        let shown = redacted(&url);
+        let shown = redacted(&url).to_string();
         assert!(!shown.contains("sekrit"));
         assert!(shown.contains("api_key=REDACTED"));
     }
@@ -420,7 +498,19 @@ mod tests {
         let url: Url = "https://api.audioaddict.com/v1/di/shows/x"
             .parse()
             .expect("valid url");
-        assert_eq!(redacted(&url), url.to_string());
+        assert_eq!(redacted(&url).to_string(), url.to_string());
+    }
+
+    #[test]
+    fn audio_mime_roundtrip_and_extensions() {
+        assert_eq!(AudioMime::from("audio/mpeg"), AudioMime::Mpeg);
+        assert_eq!(AudioMime::from("audio/x-m4a"), AudioMime::Mp4);
+        assert_eq!(AudioMime::Mp4.extension(), Some("m4a"));
+        assert_eq!(AudioMime::Mp4.to_string(), "audio/mp4");
+        let odd = AudioMime::from("audio/flac");
+        assert_eq!(odd, AudioMime::Other("audio/flac".into()));
+        assert_eq!(odd.extension(), None);
+        assert_eq!(odd.to_string(), "audio/flac");
     }
 
     #[test]

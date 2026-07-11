@@ -17,7 +17,9 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::domain::{EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ShowMeta, ShowSlug};
+use crate::domain::{
+    AudioMime, EpisodeId, EpisodeMeta, EpisodeState, ErrorClass, ShowMeta, ShowSlug,
+};
 
 /// Errors surfaced by [`Storage`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -113,10 +115,10 @@ pub struct EpisodeRecord {
     pub file_path: Option<PathBuf>,
     /// Size of the downloaded file in bytes.
     pub bytes: Option<u64>,
-    /// blake3 hash of the downloaded file (hex).
-    pub blake3: Option<String>,
+    /// blake3 hash of the downloaded file.
+    pub blake3: Option<blake3::Hash>,
     /// MIME type of the audio.
-    pub mime: Option<String>,
+    pub mime: Option<AudioMime>,
     /// When this episode was first seen.
     pub discovered_at: jiff::Timestamp,
     /// When the download last completed.
@@ -131,10 +133,10 @@ pub struct CachedFile {
     pub file_path: PathBuf,
     /// Verified size in bytes.
     pub bytes: u64,
-    /// blake3 hash (hex) computed while streaming.
-    pub blake3: String,
+    /// blake3 hash computed while streaming.
+    pub blake3: blake3::Hash,
     /// MIME type, if known.
-    pub mime: Option<String>,
+    pub mime: Option<AudioMime>,
     /// Duration probed from the file, used when the provider gave none.
     pub duration_secs: Option<u32>,
 }
@@ -376,8 +378,8 @@ impl Storage {
                     id,
                     file.file_path.to_string_lossy(),
                     i64::try_from(file.bytes).unwrap_or(i64::MAX),
-                    file.blake3,
-                    file.mime,
+                    file.blake3.to_hex().as_str(),
+                    file.mime.as_ref().map(ToString::to_string),
                     file.duration_secs,
                     jiff::Timestamp::now().to_string(),
                 ],
@@ -535,6 +537,8 @@ fn decode_episode(
     let error_class: Option<String> = row.get(7)?;
     let file_path: Option<String> = row.get(8)?;
     let bytes: Option<i64> = row.get(9)?;
+    let blake3: Option<String> = row.get(10)?;
+    let mime: Option<String> = row.get(11)?;
     let discovered_at: String = row.get(12)?;
     let downloaded_at: Option<String> = row.get(13)?;
     Ok((|| {
@@ -551,8 +555,16 @@ fn decode_episode(
             state: decode_state(&state, error_class.as_deref())?,
             file_path: file_path.map(PathBuf::from),
             bytes: bytes.map(|b| u64::try_from(b).unwrap_or(0)),
-            blake3: row_get(row, 10)?,
-            mime: row_get(row, 11)?,
+            blake3: blake3
+                .as_deref()
+                .map(|hex| {
+                    blake3::Hash::from_hex(hex).map_err(|e| StorageError::Corrupt {
+                        table: "episodes",
+                        reason: format!("column `blake3` value {hex:?}: {e}"),
+                    })
+                })
+                .transpose()?,
+            mime: mime.as_deref().map(AudioMime::from),
             discovered_at: parse_col("episodes", "discovered_at", &discovered_at)?,
             downloaded_at: downloaded_at
                 .as_deref()
@@ -662,6 +674,7 @@ mod tests {
             .unwrap();
         let id: EpisodeId = "162".parse().unwrap();
 
+        let hash = blake3::hash(b"episode-162-audio");
         storage.mark_downloading(&slug, &id).await.unwrap();
         storage
             .mark_cached(
@@ -670,8 +683,8 @@ mod tests {
                 CachedFile {
                     file_path: "/data/media/test-show/162.m4a".into(),
                     bytes: 123_456_789,
-                    blake3: "abc123".into(),
-                    mime: Some("audio/mp4".into()),
+                    blake3: hash,
+                    mime: Some(AudioMime::Mp4),
                     duration_secs: None,
                 },
             )
@@ -682,13 +695,14 @@ mod tests {
         assert_eq!(row.state, EpisodeState::Cached);
         assert_eq!(row.bytes, Some(123_456_789));
         assert_eq!(row.duration_secs, Some(7200)); // provider value kept
+        assert_eq!(row.mime, Some(AudioMime::Mp4));
         assert!(row.downloaded_at.is_some());
 
         storage.mark_pruned(&slug, &id).await.unwrap();
         let row = &storage.episodes(&slug).await.unwrap()[0];
         assert_eq!(row.state, EpisodeState::Pruned);
         assert_eq!(row.file_path, None);
-        assert_eq!(row.blake3.as_deref(), Some("abc123")); // tombstone keeps hash
+        assert_eq!(row.blake3, Some(hash)); // tombstone keeps hash
     }
 
     #[tokio::test]
@@ -705,7 +719,7 @@ mod tests {
                 CachedFile {
                     file_path: "/x/162.m4a".into(),
                     bytes: 1,
-                    blake3: "h".into(),
+                    blake3: blake3::hash(b"x"),
                     mime: None,
                     duration_secs: None,
                 },
@@ -740,7 +754,7 @@ mod tests {
                 CachedFile {
                     file_path: "/x".into(),
                     bytes: 1,
-                    blake3: "h".into(),
+                    blake3: blake3::hash(b"x"),
                     mime: None,
                     duration_secs: None,
                 },

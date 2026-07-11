@@ -9,6 +9,8 @@
 //! variants, hence the wrapper). Snapshot/event payloads grow in
 //! milestone 6; this is the protocol skeleton.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{EpisodeId, ErrorClass, ShowSlug};
@@ -163,8 +165,8 @@ pub enum KnownEvent {
     Quarantined {
         /// Provider registry name.
         provider: String,
-        /// Path of the quarantined payload.
-        path: String,
+        /// Path of the quarantined payload, when the write succeeded.
+        path: Option<PathBuf>,
     },
 }
 

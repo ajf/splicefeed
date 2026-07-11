@@ -10,11 +10,14 @@ pub mod difm;
 pub mod quarantine;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use splicefeed_core::config::Config;
-use splicefeed_core::domain::{AudioSource, EpisodeId, EpisodeMeta, ShowMeta, ShowSlug};
+use splicefeed_core::domain::{
+    AudioSource, EpisodeId, EpisodeMeta, RedactedUrl, ShowMeta, ShowSlug,
+};
 use url::Url;
 
 /// Errors surfaced by providers.
@@ -40,16 +43,22 @@ pub enum ProviderError {
         /// The HTTP status code.
         status: u16,
         /// The requested URL, credentials redacted.
-        url: String,
+        url: RedactedUrl,
     },
     /// The response arrived but could not be parsed; the raw payload was
-    /// quarantined at the given path for inspection.
-    #[error("unparseable upstream response ({reason}); payload quarantined at {quarantine_path}")]
+    /// quarantined for inspection (unless that write itself failed, which
+    /// is logged, never fatal).
+    #[error(
+        "unparseable upstream response ({reason}); payload quarantined at {}",
+        quarantine_path
+            .as_deref()
+            .map_or_else(|| "<write failed>".to_owned(), |p| p.display().to_string())
+    )]
     Parse {
         /// Why parsing failed.
         reason: String,
-        /// Where the raw payload was written.
-        quarantine_path: String,
+        /// Where the raw payload was written, if the write succeeded.
+        quarantine_path: Option<PathBuf>,
     },
     /// The episode exists but no downloadable audio asset was found in the
     /// response — typically an authentication problem or upstream drift.
@@ -146,7 +155,7 @@ impl ProviderRegistry {
     }
 }
 
-// Providers historically owned this helper; it moved to `core` so the
+// URL redaction historically lived here; it moved to `core` so the
 // download engine can use it too. Re-exported to keep the provider-facing
 // API surface in one place.
 pub use splicefeed_core::domain::redacted;

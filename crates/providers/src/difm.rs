@@ -238,7 +238,7 @@ impl Provider for DifmProvider {
                     let path = self
                         .quarantine
                         .write_or_note(&format!("episode-entry-{slug}"), &raw);
-                    tracing::warn!(show = %slug, %reason, quarantined = %path,
+                    tracing::warn!(show = %slug, %reason, quarantined = ?path,
                         "difm: skipping unparseable episode entry");
                 }
             }
@@ -285,7 +285,7 @@ impl Provider for DifmProvider {
                 .query_pairs_mut()
                 .append_pair("listen_key", listen_key.expose());
         }
-        let mime = v1::mime_for(&audio_url).map(str::to_owned);
+        let mime = v1::mime_for(&audio_url);
         Ok(AudioSource {
             url: audio_url,
             mime,
