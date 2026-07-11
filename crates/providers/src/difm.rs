@@ -20,10 +20,18 @@
 //! it authorizes premium *stream hosts*, not the API. `?api_key=` is a
 //! recognized parameter (bogus values get 403 "Invalid API Key") and takes
 //! the member API key, a separate credential. [`DifmProvider::resolve_audio`]
-//! sends `?api_key=` when one is configured, still appends the listen key
-//! to resolved audio URLs for the stream host, and fails loudly with a
-//! hint otherwise. The authenticated asset *shape* remains UNCONFIRMED
-//! until probed with a real member API key.
+//! sends `?api_key=` when one is configured and fails loudly with a hint
+//! otherwise.
+//!
+//! Confirmed 2026-07-11 with a real member API key: an authenticated
+//! episode carries `tracks[].content.assets[].url`, a **signed, short-lived
+//! playback URL** on `content.audioaddict.com` (`audio_token` + an `auth`
+//! HMAC over the query string + an `exp` a day out). It authorizes itself,
+//! so `resolve_audio` must *not* append the listen key — doing so
+//! invalidates the signature (403). The listen-key append is kept only for
+//! a bare stream-host URL that carries no signature of its own. Because the
+//! URL expires, audio is resolved immediately before each download, never
+//! cached.
 
 mod v1;
 
@@ -273,7 +281,16 @@ impl Provider for DifmProvider {
                 hint: hint.into(),
             });
         };
-        if !audio_url.query_pairs().any(|(k, _)| k == "listen_key") {
+        // With a member api_key the API returns a fully signed, short-lived
+        // playback URL (`audio_token` + `auth` HMAC over the query string,
+        // plus `exp`) that authorizes itself — confirmed 2026-07-11.
+        // Appending `listen_key` to such a URL invalidates the signature and
+        // gets a 403, so only add it to a bare stream-host URL that carries
+        // no signature of its own (the legacy shape).
+        let already_authorized = audio_url
+            .query_pairs()
+            .any(|(k, _)| matches!(k.as_ref(), "listen_key" | "audio_token" | "auth"));
+        if !already_authorized {
             audio_url
                 .query_pairs_mut()
                 .append_pair("listen_key", self.listen_key.expose());

@@ -137,10 +137,17 @@ tests):
   `resolve_audio` sends `?api_key=` when configured and still appends the
   listen key to resolved audio URLs, which is what it historically
   authorizes (premium stream hosts).
-- **Still UNCONFIRMED (needs a real member API key):** the authenticated
-  audio asset *shape*. The parser stays maximally tolerant
+- **Confirmed 2026-07-11 with a real member API key:** an authenticated
+  episode carries `tracks[].content.assets[].url` — a signed, short-lived
+  playback URL on `content.audioaddict.com` (`audio_token`, `member_id`,
+  `exp` ~24h out, and an `auth` HMAC over the query string; MP3,
+  range-served, HTTP 206). It authorizes itself, so `resolve_audio` does
+  **not** append the listen key — that invalidates the signature (verified:
+  403). The append survives only for a bare stream-host URL with no
+  signature of its own. Since the URL expires, audio is resolved right
+  before each download, never cached. The tolerant parser
   (`content.assets[].url`, `content.url`, extension-gated `asset_url`)
-  and fails loudly with a hint; `probe` is the verification step.
+  needed no change — the confirmed shape is the one it already handled.
 
 ### Resilience to drift (first-class)
 

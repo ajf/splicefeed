@@ -234,6 +234,39 @@ async fn resolve_audio_prefers_api_key_when_configured() {
 }
 
 #[tokio::test]
+async fn resolve_audio_leaves_signed_playback_url_untouched() {
+    let server = MockServer::start().await;
+    let tmp = tempdir();
+    // The real authenticated shape: a signed content-host URL whose `auth`
+    // HMAC covers the query string. Appending listen_key would 403 it.
+    let body = r#"{"slug": "162", "tracks": [{"length": 7200, "content": {"assets": [
+        {"url": "//content.audioaddict.com/prd/x/ep162.mp3?audio_token=tok&exp=2026-07-12T00:00:00Z&auth=deadbeef"}
+    ]}}]}"#;
+    Mock::given(method("GET"))
+        .and(path("/shows/melodik-revolution/episodes/162"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(&server)
+        .await;
+
+    let provider = provider_for(&server, &tmp);
+    let audio = provider
+        .resolve_audio(
+            &slug("melodik-revolution"),
+            &"162".parse().expect("valid id"),
+        )
+        .await
+        .expect("resolves");
+
+    assert_eq!(audio.url.host_str(), Some("content.audioaddict.com"));
+    assert!(
+        !audio.url.query_pairs().any(|(k, _)| k == "listen_key"),
+        "must not append listen_key to a signed URL (breaks the auth HMAC)"
+    );
+    assert_eq!(audio.mime.as_deref(), Some("audio/mpeg"));
+    cleanup(tmp);
+}
+
+#[tokio::test]
 async fn resolve_audio_appends_listen_key_to_asset() {
     let server = MockServer::start().await;
     let tmp = tempdir();
