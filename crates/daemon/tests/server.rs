@@ -114,8 +114,9 @@ async fn served_library(api: &MockServer) -> (String, tempfile::TempDir) {
         .await
         .expect("ephemeral bind");
     let addr = listener.local_addr().expect("bound addr");
+    let (_tx, rx) = tokio::sync::watch::channel(library);
     tokio::spawn(async move {
-        axum::serve(listener, server::router(library))
+        axum::serve(listener, server::router(rx))
             .await
             .expect("server runs");
     });

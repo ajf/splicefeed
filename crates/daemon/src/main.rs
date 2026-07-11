@@ -12,7 +12,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
-use splicefeed_daemon::{report, server};
+use splicefeed_daemon::{ops, reload, report, server};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -525,19 +525,24 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
     }
 
     match mode {
-        Mode::Once => sync_all_once(&library).await,
+        Mode::Once => ops::sync_all_once(&library).await,
         Mode::Serve => {
-            let library = Arc::new(library);
+            let (tx, rx) = tokio::sync::watch::channel(Arc::new(library));
             // Interim until the milestone-5 scheduler lands: converge
             // once in the background, then serve until ctrl-c.
-            tokio::spawn(initial_sync(Arc::clone(&library)));
-            server::serve(library, shutdown_signal()).await
+            tokio::spawn(initial_sync(tx.borrow().clone()));
+            #[cfg(unix)]
+            tokio::spawn(reload::on_sighup(
+                tx,
+                config_path.map(std::path::Path::to_path_buf),
+            ));
+            server::serve(rx, shutdown_signal()).await
         }
     }
 }
 
 async fn initial_sync(library: Arc<Library>) {
-    if let Err(err) = sync_all_once(&library).await {
+    if let Err(err) = ops::sync_all_once(&library).await {
         tracing::error!(error = %err, "initial sync failed");
     }
 }
@@ -551,38 +556,4 @@ async fn shutdown_signal() {
             std::future::pending::<()>().await
         }
     }
-}
-
-/// Cron-style operation: poll every configured show once, then exit.
-/// One failing show never stops the others; any failure makes the exit
-/// status non-zero so cron/systemd notice.
-async fn sync_all_once(library: &Library) -> anyhow::Result<()> {
-    let mut failed: Vec<&splicefeed::ShowSlug> = Vec::new();
-    for show in library.config().shows() {
-        let slug = show.slug();
-        match library.sync(slug).await {
-            Ok(report) => tracing::info!(
-                show = %slug,
-                discovered = report.discovered,
-                downloaded = report.downloaded,
-                pruned = report.pruned,
-                "sync complete"
-            ),
-            Err(err) => {
-                tracing::error!(show = %slug, error = %err, "sync failed");
-                failed.push(slug);
-            }
-        }
-    }
-    if !failed.is_empty() {
-        bail!(
-            "sync failed for {}",
-            failed
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    Ok(())
 }

@@ -14,13 +14,20 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::get;
 use splicefeed::{Library, LibraryError, ShowSlug};
+use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use crate::report;
 
-/// All routes over a shared [`Library`].
-pub fn router(library: Arc<Library>) -> Router {
-    let data_dir = library.config().data_dir();
+/// The server's handle to the current [`Library`]. A reload (SIGHUP)
+/// swaps the value; handlers read it per request.
+pub type LibraryHandle = watch::Receiver<Arc<Library>>;
+
+/// All routes over the current library. The `/media` and `/artwork`
+/// roots are captured from the initial config — `data_dir` is a
+/// restart-only setting, enforced by the reload guard.
+pub fn router(library: LibraryHandle) -> Router {
+    let data_dir = library.borrow().config().data_dir().to_owned();
     Router::new()
         .route("/feeds/{feed}", get(feed))
         .route("/healthz", get(healthz))
@@ -34,16 +41,18 @@ pub fn router(library: Arc<Library>) -> Router {
 
 /// Bind the configured address and serve until `shutdown` resolves.
 pub async fn serve(
-    library: Arc<Library>,
+    library: LibraryHandle,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
-    let bind = library.config().bind();
+    let (bind, external) = {
+        let current = library.borrow();
+        (
+            current.config().bind(),
+            current.config().external_base_url(),
+        )
+    };
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    tracing::info!(
-        %bind,
-        external = %library.config().external_base_url(),
-        "HTTP server listening"
-    );
+    tracing::info!(%bind, %external, "HTTP server listening");
     axum::serve(listener, router(library))
         .with_graceful_shutdown(shutdown)
         .await?;
@@ -51,7 +60,8 @@ pub async fn serve(
 }
 
 /// `GET /feeds/<slug>.xml` — the show's podcast RSS.
-async fn feed(State(library): State<Arc<Library>>, Path(name): Path<String>) -> Response {
+async fn feed(State(handle): State<LibraryHandle>, Path(name): Path<String>) -> Response {
+    let library = handle.borrow().clone();
     let Some(slug) = name.strip_suffix(".xml") else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -90,7 +100,8 @@ struct ShowHealth {
 }
 
 /// `GET /healthz` — liveness plus last-poll health per show.
-async fn healthz(State(library): State<Arc<Library>>) -> Response {
+async fn healthz(State(handle): State<LibraryHandle>) -> Response {
+    let library = handle.borrow().clone();
     match library.show_records().await {
         Ok(records) => Json(Health {
             status: "ok",
@@ -114,7 +125,8 @@ async fn healthz(State(library): State<Arc<Library>>) -> Response {
 
 /// `GET /debug` — the same report the `status` CLI command shows, as
 /// pretty-printed JSON.
-async fn debug(State(library): State<Arc<Library>>) -> Response {
+async fn debug(State(handle): State<LibraryHandle>) -> Response {
+    let library = handle.borrow().clone();
     match report::status_report(&library).await {
         Ok(report) => match serde_json::to_string_pretty(&report) {
             Ok(body) => ([(header::CONTENT_TYPE, "application/json")], body).into_response(),

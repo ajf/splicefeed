@@ -242,6 +242,16 @@ Binds loopback by default; exposing wider is an explicit config choice.
 No TLS and no auth of any kind — operator decision 2026-07-11: Caddy
 fronts anything that needs either. No privileged ports, no root.
 
+**SIGHUP reloads the config.** The serving daemon holds its `Library`
+behind a `tokio::sync::watch` channel; a reload builds a fresh one
+(storage handle shared, download engine shared unless the concurrency
+changed, providers rebuilt) and swaps it in, then syncs so added shows
+materialize. A failed reload — bad TOML, invalid config, or a
+restart-only change — logs and leaves the old config serving; `bind`
+and `data_dir` are restart-only (listener and media routes captured
+them at startup). The milestone-5 scheduler subscribes to the same
+channel. systemd gets `ExecReload=kill -HUP $MAINPID` in milestone 8.
+
 ## IPC + status TUI
 
 - Unix socket at `$XDG_RUNTIME_DIR/splicefeed.sock` (macOS: under the data
@@ -314,6 +324,9 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    then serves; the jittered scheduler is milestone 5. `write_feed`
    became `async` — it reads storage.)*
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
+   *(partially shipped early: `--once`, graceful ctrl-c shutdown, and
+   SIGHUP config reload are done; the jittered per-show poll loop and
+   polite rate limit remain.)*
 6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (Much
    of this shipped early: plain-text/JSON `status` reading the database
    directly (milestone 3), `verify [SLUG] [--fix]` — existence, size,

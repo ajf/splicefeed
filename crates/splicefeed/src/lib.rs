@@ -166,6 +166,30 @@ impl Library {
         &self.config
     }
 
+    /// A new `Library` over `config`, sharing this one's storage handle
+    /// (and its download engine, unless `download_concurrency` changed —
+    /// sharing keeps in-flight transfers counted against the one true
+    /// limit across a reload). Providers are rebuilt, so credential
+    /// changes take effect.
+    ///
+    /// The caller must not change `data_dir` between the two configs:
+    /// storage is shared, so the new config's data_dir is assumed to be
+    /// the old one's. The daemon enforces this before calling.
+    pub async fn reload(&self, config: Config) -> Result<Library, LibraryError> {
+        let providers = ProviderRegistry::from_config(&config)?;
+        let downloader = if config.download_concurrency() == self.config.download_concurrency() {
+            self.downloader.clone()
+        } else {
+            Downloader::new(config.download_concurrency())?
+        };
+        Ok(Library {
+            config,
+            providers,
+            storage: self.storage.clone(),
+            downloader,
+        })
+    }
+
     /// All shows recorded in local storage, ordered by slug, with poll
     /// bookkeeping. May include shows no longer in the configuration —
     /// storage outlives config edits.
