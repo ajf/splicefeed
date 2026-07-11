@@ -190,6 +190,23 @@ impl fmt::Display for ErrorClass {
     }
 }
 
+impl FromStr for ErrorClass {
+    type Err = InvalidId;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "network" => Ok(Self::Network),
+            "http-status" => Ok(Self::HttpStatus),
+            "parse" => Ok(Self::Parse),
+            "disk" => Ok(Self::Disk),
+            _ => Err(InvalidId {
+                kind: "error class",
+                reason: "not one of network/http-status/parse/disk",
+            }),
+        }
+    }
+}
+
 /// Lifecycle of an episode: `Discovered → Downloading → Cached → Pruned`,
 /// with `Failed` as a retryable detour out of `Downloading`.
 ///
@@ -289,6 +306,32 @@ pub struct AudioSource {
     pub bytes: Option<u64>,
 }
 
+/// A URL rendered for logs: the value of any `listen_key` query parameter
+/// is replaced with `REDACTED`. Every URL that ends up in a log line or an
+/// error message goes through this.
+pub fn redacted(url: &Url) -> String {
+    if !url.query_pairs().any(|(k, _)| k == "listen_key") {
+        return url.to_string();
+    }
+    let mut clean = url.clone();
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(k, v)| {
+            let v = if k == "listen_key" {
+                "REDACTED".into()
+            } else {
+                v
+            };
+            (k.into_owned(), v.into_owned())
+        })
+        .collect();
+    clean
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    clean.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +348,25 @@ mod tests {
     fn listen_key_debug_is_redacted() {
         let key = ListenKey::new("super-secret".into());
         assert_eq!(format!("{key:?}"), "ListenKey(<redacted>)");
+    }
+
+    #[test]
+    fn redaction_hides_listen_key() {
+        let url: Url = "https://prem2.di.fm/shows/x/ep.mp4?foo=1&listen_key=sekrit"
+            .parse()
+            .expect("valid url");
+        let shown = redacted(&url);
+        assert!(!shown.contains("sekrit"));
+        assert!(shown.contains("listen_key=REDACTED"));
+        assert!(shown.contains("foo=1"));
+    }
+
+    #[test]
+    fn redaction_leaves_clean_urls_alone() {
+        let url: Url = "https://api.audioaddict.com/v1/di/shows/x"
+            .parse()
+            .expect("valid url");
+        assert_eq!(redacted(&url), url.to_string());
     }
 
     #[test]

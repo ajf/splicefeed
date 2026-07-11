@@ -64,6 +64,8 @@ pub struct Config {
     data_dir: Option<PathBuf>,
     #[serde(default = "defaults::poll_interval", with = "humantime_serde")]
     poll_interval: Duration,
+    #[serde(default = "defaults::download_concurrency")]
+    download_concurrency: std::num::NonZeroUsize,
     #[serde(default)]
     retention: Retention,
     #[serde(default)]
@@ -156,6 +158,11 @@ impl Config {
         self.poll_interval
     }
 
+    /// How many episode downloads may run at once, across all shows.
+    pub fn download_concurrency(&self) -> std::num::NonZeroUsize {
+        self.download_concurrency
+    }
+
     /// Global retention policy (per-show overrides layer on top).
     pub fn retention(&self) -> &Retention {
         &self.retention
@@ -169,6 +176,13 @@ impl Config {
     /// The DI.FM premium listen key, if configured.
     pub fn difm_listen_key(&self) -> Option<&ListenKey> {
         self.auth.difm.as_ref()?.listen_key.as_ref()
+    }
+
+    /// Override for the AudioAddict API base URL — for sibling networks
+    /// (RadioTunes, JazzRadio, …) or tests. `None` means the DI.FM
+    /// production API.
+    pub fn difm_base_url(&self) -> Option<&Url> {
+        self.auth.difm.as_ref()?.base_url.as_ref()
     }
 }
 
@@ -296,6 +310,8 @@ struct Auth {
 struct DifmAuth {
     #[serde(default)]
     listen_key: Option<ListenKey>,
+    #[serde(default)]
+    base_url: Option<Url>,
 }
 
 mod defaults {
@@ -312,6 +328,10 @@ mod defaults {
 
     pub(super) fn provider() -> String {
         "difm".to_owned()
+    }
+
+    pub(super) fn download_concurrency() -> std::num::NonZeroUsize {
+        std::num::NonZeroUsize::new(2).unwrap_or_else(|| unreachable!("2 is nonzero"))
     }
 }
 

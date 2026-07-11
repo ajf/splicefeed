@@ -275,9 +275,11 @@ impl ProviderFactory for DifmFactory {
         let key = config
             .difm_listen_key()
             .ok_or(ProviderError::MissingCredentials("difm"))?;
-        let provider = DifmProvider::builder(key.clone())
-            .quarantine_dir(config.data_dir().join("quarantine").join("difm"))
-            .build()?;
-        Ok(Arc::new(provider))
+        let mut builder = DifmProvider::builder(key.clone())
+            .quarantine_dir(config.data_dir().join("quarantine").join("difm"));
+        if let Some(base_url) = config.difm_base_url() {
+            builder = builder.base_url(base_url.clone());
+        }
+        Ok(Arc::new(builder.build()?))
     }
 }

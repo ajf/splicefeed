@@ -14,3 +14,15 @@ humantime-serde.workspace = true
 url.workspace = true
 jiff.workspace = true
 etcetera.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+blake3.workspace = true
+tempfile.workspace = true
+backon.workspace = true
+lofty.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+

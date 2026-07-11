@@ -168,7 +168,34 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
     }
 
     match mode {
-        Mode::Once => bail!("--once sync lands in milestone 3 (storage + downloader)"),
+        Mode::Once => sync_all_once(&library).await,
         Mode::Serve => bail!("the serve loop lands in milestones 4–5 (server + scheduler)"),
     }
+}
+
+/// Cron-style operation: poll every configured show once, then exit.
+/// One failing show never stops the others; any failure makes the exit
+/// status non-zero so cron/systemd notice.
+async fn sync_all_once(library: &Library) -> anyhow::Result<()> {
+    let mut failed = Vec::new();
+    for show in library.config().shows() {
+        let slug = show.slug();
+        match library.sync(slug).await {
+            Ok(report) => tracing::info!(
+                show = %slug,
+                discovered = report.discovered,
+                downloaded = report.downloaded,
+                pruned = report.pruned,
+                "sync complete"
+            ),
+            Err(err) => {
+                tracing::error!(show = %slug, error = %err, "sync failed");
+                failed.push(slug.to_string());
+            }
+        }
+    }
+    if !failed.is_empty() {
+        bail!("sync failed for {}", failed.join(", "));
+    }
+    Ok(())
 }

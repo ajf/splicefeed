@@ -152,16 +152,21 @@ tests):
 SQLite via rusqlite (bundled), one DB in the data dir. Sketch:
 
 ```sql
-shows    (slug PK, provider, title, artwork_path, last_poll_at, last_poll_ok, last_error)
-episodes (provider_episode_id PK, show_slug FK, title, description,
-          published_at, duration_secs, state, file_path, bytes, blake3,
-          mime, discovered_at, downloaded_at)
+shows    (slug PK, provider, title, description, artwork_path,
+          last_poll_at, last_poll_ok, last_error)
+episodes (show_slug FK + provider_episode_id → composite PK, title,
+          description, published_at, duration_secs, state, error_class,
+          file_path, bytes, blake3, mime, discovered_at, downloaded_at)
 ```
 
-GUIDs derive from `provider_episode_id` — never file paths. Retention
+(The composite key is deliberate: AudioAddict episode slugs like `162` are
+only unique within a show.) GUIDs derive from `provider_episode_id` —
+never file paths. Retention
 (keep-last-N and/or max-GB, global default + per-show override) prunes files
 and flips state to `Pruned`; pruned rows are kept so episodes don't reappear
-as "new".
+as "new". The byte cap never evicts the newest cached episode on its own —
+one oversized file must not leave a feed empty or churn through
+download-then-prune every poll.
 
 ## Downloader
 
@@ -264,7 +269,11 @@ as the contract of the public API. `#![deny(missing_docs)]` on all lib crates;
 1. **Skeleton** — workspace, config schema, domain types, CLI shell. *(done)*
 2. **Provider** — confirm DI.FM/AudioAddict endpoints empirically (needs
    listen key), capture fixtures, implement `difm` + quarantine + `probe`.
+   *(done — except the audio-asset shape, still blocked on a real listen
+   key; failed episodes are recorded and retried each sync, so it can be
+   confirmed with `probe` at any time without further code changes)*
 3. **Storage + downloader** — SQLite state, streaming downloads, retention.
+   *(done — `run --once` works end to end)*
 4. **RSS + server** — feed generation, axum routes, range-served media.
    **← usable milestone: feeds work in a real podcast app here.**
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.

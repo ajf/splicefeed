@@ -5,11 +5,13 @@
 //! or telemetry exporter crates — it records via facades, the binary
 //! exports. See `DESIGN.md` ("Workspace layout") for the boundary rule.
 //!
-//! Storage (SQLite), the download engine, retention, artwork caching, and
-//! RSS generation land here in milestones 3–4.
+//! Artwork caching and RSS generation land here in milestone 4.
 
 #![deny(missing_docs)]
 
 pub mod config;
 pub mod domain;
+pub mod download;
 pub mod ipc;
+pub mod retention;
+pub mod storage;

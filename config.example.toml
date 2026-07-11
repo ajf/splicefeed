@@ -18,6 +18,9 @@
 # Each poll is jittered and rate-limited; per-show overrides below.
 #poll_interval = "30m"
 
+# How many episode downloads may run at once, across all shows.
+#download_concurrency = 2
+
 # Global retention. Both limits may be set; the stricter one wins.
 # Omit a field for "no limit". Per-show [shows.retention] overrides these.
 [retention]
@@ -28,6 +31,9 @@ keep_last = 50
 # value; one of the two is required if any show uses the difm provider.
 [auth.difm]
 #listen_key = "your-listen-key"
+# API base override for sibling AudioAddict networks (RadioTunes,
+# JazzRadio, ...); leave unset for DI.FM.
+#base_url = "https://api.audioaddict.com/v1/radiotunes/"
 
 # One [[shows]] block per followed show.
 [[shows]]
