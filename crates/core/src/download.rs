@@ -130,10 +130,16 @@ impl Downloader {
 
     /// Download `source` to `dest` (atomically: temp file + rename),
     /// retrying transient failures. Returns the verified size and hash.
+    ///
+    /// `progress` (if any) is called from the transfer loop with
+    /// `(bytes so far, expected total)`; a retried attempt starts the
+    /// count over. Callbacks must be cheap and non-blocking — they run
+    /// between chunks.
     pub async fn fetch(
         &self,
         source: &AudioSource,
         dest: &Path,
+        progress: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
     ) -> Result<Downloaded, DownloadError> {
         let _permit = self
             .permits
@@ -142,7 +148,7 @@ impl Downloader {
             .unwrap_or_else(|_| unreachable!("semaphore is never closed"));
         let shown = RedactedUrl::from(&source.url);
 
-        (|| self.attempt(source, dest, &shown))
+        (|| self.attempt(source, dest, &shown, progress))
             .retry(
                 ExponentialBuilder::default()
                     .with_max_times(2)
@@ -160,6 +166,7 @@ impl Downloader {
         source: &AudioSource,
         dest: &Path,
         shown: &RedactedUrl,
+        progress: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
     ) -> Result<Downloaded, DownloadError> {
         let network = |e: reqwest::Error| DownloadError::Network {
             url: shown.clone(),
@@ -210,6 +217,9 @@ impl Downloader {
             hasher.update(&chunk);
             file.write_all(&chunk).await.map_err(disk(temp.path()))?;
             written += chunk.len() as u64;
+            if let Some(progress) = progress {
+                progress(written, expected);
+            }
         }
         file.flush().await.map_err(disk(temp.path()))?;
         drop(file);
@@ -310,7 +320,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let dest = dir.path().join("media").join("show").join("162.m4a");
         let got = downloader()
-            .fetch(&source(&format!("{}/audio/162.mp4", server.uri())), &dest)
+            .fetch(
+                &source(&format!("{}/audio/162.mp4", server.uri())),
+                &dest,
+                None,
+            )
             .await
             .expect("download succeeds");
 
@@ -332,7 +346,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let dest = dir.path().join("gone.m4a");
         let err = downloader()
-            .fetch(&source(&format!("{}/audio/gone.mp4", server.uri())), &dest)
+            .fetch(
+                &source(&format!("{}/audio/gone.mp4", server.uri())),
+                &dest,
+                None,
+            )
             .await
             .expect_err("404 fails");
 
@@ -357,7 +375,7 @@ mod tests {
         let mut src = source(&format!("{}/audio/short.mp4", server.uri()));
         src.bytes = Some(999); // upstream Content-Length wins when present…
         let dest = dir.path().join("short.m4a");
-        let result = downloader().fetch(&src, &dest).await;
+        let result = downloader().fetch(&src, &dest, None).await;
         // …wiremock sets Content-Length to the real body length, so this
         // succeeds; the provider hint only applies when the header is
         // absent. What must never happen is a partial file at `dest`.
@@ -380,6 +398,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn progress_reports_bytes_and_total() {
+        let server = MockServer::start().await;
+        let body = vec![0xEE_u8; 32 * 1024];
+        Mock::given(method("GET"))
+            .and(path("/audio/p.mp4"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let seen = std::sync::Mutex::new(Vec::new());
+        let record = |done: u64, total: Option<u64>| {
+            seen.lock().expect("not poisoned").push((done, total));
+        };
+        downloader()
+            .fetch(
+                &source(&format!("{}/audio/p.mp4", server.uri())),
+                &dir.path().join("p.m4a"),
+                Some(&record),
+            )
+            .await
+            .expect("download succeeds");
+
+        let seen = seen.into_inner().expect("not poisoned");
+        let last = seen.last().expect("progress was reported");
+        assert_eq!(last.0, body.len() as u64, "final call sees all bytes");
+        assert_eq!(last.1, Some(body.len() as u64), "total from Content-Length");
+        assert!(seen.iter().all(|(done, _)| *done <= body.len() as u64));
+    }
+
+    #[tokio::test]
     async fn error_messages_redact_the_listen_key() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -390,7 +439,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let url = format!("{}/audio/162.mp4?listen_key=sekrit", server.uri());
         let err = downloader()
-            .fetch(&source(&url), &dir.path().join("x.m4a"))
+            .fetch(&source(&url), &dir.path().join("x.m4a"), None)
             .await
             .expect_err("403 fails");
         let shown = err.to_string();

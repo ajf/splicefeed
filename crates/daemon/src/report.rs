@@ -16,6 +16,8 @@ pub struct StatusReport {
     pub total_files: usize,
     /// Bytes on disk across all shows.
     pub total_bytes: u64,
+    /// Configured maximum concurrent downloads.
+    pub download_concurrency: usize,
     /// The SQLite database file.
     pub state_db: std::path::PathBuf,
     /// The data directory.
@@ -48,6 +50,8 @@ pub struct ShowStatus {
 pub struct EpisodeStatus {
     /// The episode.
     pub id: splicefeed::EpisodeId,
+    /// Episode notes, if the provider supplied any.
+    pub description: Option<String>,
     /// Lifecycle state.
     pub state: EpisodeState,
     /// File size, when downloaded.
@@ -62,6 +66,12 @@ pub struct EpisodeStatus {
     pub file_path: Option<std::path::PathBuf>,
     /// When the download completed.
     pub downloaded_at: Option<jiff::Timestamp>,
+    /// Bytes received so far, while downloading.
+    pub bytes_done: Option<u64>,
+    /// Expected total bytes, while downloading.
+    pub bytes_total: Option<u64>,
+    /// When progress was last reported — stale means stalled.
+    pub progress_at: Option<jiff::Timestamp>,
 }
 
 /// Build the full report from storage.
@@ -86,6 +96,7 @@ pub async fn status_report(library: &Library) -> Result<StatusReport, LibraryErr
             .filter(|episode| matches!(episode.state, EpisodeState::Cached))
             .count(),
         total_bytes: show_reports.iter().map(|show| show.cached_bytes).sum(),
+        download_concurrency: library.config().download_concurrency().get(),
         state_db: library.config().data_dir().join("splicefeed.db"),
         data_dir: library.config().data_dir().to_owned(),
         shows: show_reports,
@@ -114,6 +125,7 @@ async fn show_status(
             .into_iter()
             .map(|episode| EpisodeStatus {
                 id: episode.id,
+                description: episode.description,
                 state: episode.state,
                 bytes: episode.bytes,
                 mime: episode.mime,
@@ -121,6 +133,9 @@ async fn show_status(
                 blake3: episode.blake3.map(|hash| hash.to_hex().to_string()),
                 file_path: episode.file_path,
                 downloaded_at: episode.downloaded_at,
+                bytes_done: episode.bytes_done,
+                bytes_total: episode.bytes_total,
+                progress_at: episode.progress_at,
             })
             .collect(),
     })

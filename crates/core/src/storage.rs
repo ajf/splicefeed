@@ -123,6 +123,13 @@ pub struct EpisodeRecord {
     pub discovered_at: jiff::Timestamp,
     /// When the download last completed.
     pub downloaded_at: Option<jiff::Timestamp>,
+    /// Bytes received so far, while `Downloading`.
+    pub bytes_done: Option<u64>,
+    /// Expected total bytes, while `Downloading` (when upstream said).
+    pub bytes_total: Option<u64>,
+    /// When progress was last reported — lets readers spot a stalled or
+    /// abandoned download.
+    pub progress_at: Option<jiff::Timestamp>,
 }
 
 /// Everything recorded about a finished download when an episode becomes
@@ -172,6 +179,14 @@ CREATE TABLE episodes (
 ) STRICT;
 
 CREATE INDEX episodes_by_show_state ON episodes (show_slug, state);
+";
+
+/// v2: in-flight download progress, written (throttled) by the download
+/// engine and read by `status --watch` / `/debug` across processes.
+const SCHEMA_V2: &str = "
+ALTER TABLE episodes ADD COLUMN bytes_done INTEGER;
+ALTER TABLE episodes ADD COLUMN bytes_total INTEGER;
+ALTER TABLE episodes ADD COLUMN progress_at TEXT;
 ";
 
 /// Handle to the SQLite state. Cheap to clone; all clones share one
@@ -356,7 +371,7 @@ impl Storage {
                 "SELECT show_slug, provider_episode_id, title, description,
                         published_at, duration_secs, state, error_class,
                         file_path, bytes, blake3, mime, discovered_at,
-                        downloaded_at
+                        downloaded_at, bytes_done, bytes_total, progress_at
                  FROM episodes WHERE show_slug = ?1
                  ORDER BY published_at DESC, provider_episode_id DESC",
             )?;
@@ -375,10 +390,41 @@ impl Storage {
     ) -> Result<(), StorageError> {
         self.transition(show, episode, EpisodeState::Downloading, |tx, show, id| {
             tx.execute(
-                "UPDATE episodes SET state = 'downloading', error_class = NULL
+                "UPDATE episodes SET state = 'downloading', error_class = NULL,
+                        bytes_done = NULL, bytes_total = NULL, progress_at = NULL
                  WHERE show_slug = ?1 AND provider_episode_id = ?2",
                 params![show, id],
             )
+        })
+        .await
+    }
+
+    /// Record in-flight download progress. A no-op unless the episode is
+    /// currently [`EpisodeState::Downloading`], so a racing completion
+    /// never gets stale progress written over it.
+    pub async fn set_progress(
+        &self,
+        show: &ShowSlug,
+        episode: &EpisodeId,
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    ) -> Result<(), StorageError> {
+        let (show, episode) = (show.clone(), episode.clone());
+        self.with(move |conn| {
+            conn.execute(
+                "UPDATE episodes
+                 SET bytes_done = ?3, bytes_total = ?4, progress_at = ?5
+                 WHERE show_slug = ?1 AND provider_episode_id = ?2
+                   AND state = 'downloading'",
+                params![
+                    show.as_str(),
+                    episode.as_str(),
+                    i64::try_from(bytes_done).unwrap_or(i64::MAX),
+                    bytes_total.map(|b| i64::try_from(b).unwrap_or(i64::MAX)),
+                    jiff::Timestamp::now().to_string(),
+                ],
+            )?;
+            Ok(())
         })
         .await
     }
@@ -396,7 +442,8 @@ impl Storage {
                  SET state = 'cached', error_class = NULL, file_path = ?3,
                      bytes = ?4, blake3 = ?5, mime = ?6,
                      duration_secs = COALESCE(duration_secs, ?7),
-                     downloaded_at = ?8
+                     downloaded_at = ?8,
+                     bytes_done = NULL, bytes_total = NULL, progress_at = NULL
                  WHERE show_slug = ?1 AND provider_episode_id = ?2",
                 params![
                     show,
@@ -426,7 +473,9 @@ impl Storage {
             EpisodeState::Failed(class),
             move |tx, show, id| {
                 tx.execute(
-                    "UPDATE episodes SET state = 'failed', error_class = ?3
+                    "UPDATE episodes SET state = 'failed', error_class = ?3,
+                            bytes_done = NULL, bytes_total = NULL,
+                            progress_at = NULL
                      WHERE show_slug = ?1 AND provider_episode_id = ?2",
                     params![show, id, class.to_string()],
                 )
@@ -525,8 +574,11 @@ fn migrate(conn: &Connection) -> Result<(), StorageError> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
-        conn.pragma_update(None, "user_version", 1)?;
     }
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+    }
+    conn.pragma_update(None, "user_version", 2)?;
     Ok(())
 }
 
@@ -566,6 +618,9 @@ fn decode_episode(
     let mime: Option<String> = row.get(11)?;
     let discovered_at: String = row.get(12)?;
     let downloaded_at: Option<String> = row.get(13)?;
+    let bytes_done: Option<i64> = row.get(14)?;
+    let bytes_total: Option<i64> = row.get(15)?;
+    let progress_at: Option<String> = row.get(16)?;
     Ok((|| {
         Ok(EpisodeRecord {
             show: parse_col("episodes", "show_slug", &show)?,
@@ -594,6 +649,12 @@ fn decode_episode(
             downloaded_at: downloaded_at
                 .as_deref()
                 .map(|t| parse_col("episodes", "downloaded_at", t))
+                .transpose()?,
+            bytes_done: bytes_done.map(|b| u64::try_from(b).unwrap_or(0)),
+            bytes_total: bytes_total.map(|b| u64::try_from(b).unwrap_or(0)),
+            progress_at: progress_at
+                .as_deref()
+                .map(|t| parse_col("episodes", "progress_at", t))
                 .transpose()?,
         })
     })())
@@ -822,6 +883,82 @@ mod tests {
         let ghost: ShowSlug = "ghost".parse().unwrap();
         storage.record_poll(&ghost, None).await.unwrap();
         assert!(storage.show(&ghost).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn v1_databases_migrate_in_place() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Lay down a genuine v1 database with a row in it.
+        {
+            let conn = Connection::open(dir.path().join("splicefeed.db")).expect("open");
+            conn.execute_batch(SCHEMA_V1).expect("v1 schema");
+            conn.pragma_update(None, "user_version", 1)
+                .expect("version");
+            conn.execute(
+                "INSERT INTO shows (slug, provider, title) VALUES ('test-show', 'difm', 'T')",
+                [],
+            )
+            .expect("seed show");
+            conn.execute(
+                "INSERT INTO episodes (show_slug, provider_episode_id, title, state,
+                 discovered_at) VALUES ('test-show', '162', 'E', 'discovered',
+                 '2026-07-11T00:00:00Z')",
+                [],
+            )
+            .expect("seed episode");
+        }
+
+        let storage = Storage::open(dir.path()).await.expect("migrates");
+        let slug: ShowSlug = "test-show".parse().unwrap();
+        let rows = storage.episodes(&slug).await.expect("reads post-migration");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].bytes_done, None, "new columns default to NULL");
+    }
+
+    #[tokio::test]
+    async fn progress_only_sticks_while_downloading() {
+        let (_dir, storage, slug) = open_temp().await;
+        storage
+            .discover(&slug, &[meta("162", "2026-07-05T18:00:00Z")])
+            .await
+            .unwrap();
+        let id: EpisodeId = "162".parse().unwrap();
+
+        // Not downloading yet: the write is a guarded no-op.
+        storage
+            .set_progress(&slug, &id, 10, Some(100))
+            .await
+            .unwrap();
+        assert_eq!(storage.episodes(&slug).await.unwrap()[0].bytes_done, None);
+
+        storage.mark_downloading(&slug, &id).await.unwrap();
+        storage
+            .set_progress(&slug, &id, 10, Some(100))
+            .await
+            .unwrap();
+        let row = &storage.episodes(&slug).await.unwrap()[0];
+        assert_eq!(row.bytes_done, Some(10));
+        assert_eq!(row.bytes_total, Some(100));
+        assert!(row.progress_at.is_some());
+
+        // Completion clears the transient progress fields.
+        storage
+            .mark_cached(
+                &slug,
+                &id,
+                CachedFile {
+                    file_path: "/x/162.m4a".into(),
+                    bytes: 100,
+                    blake3: blake3::hash(b"x"),
+                    mime: None,
+                    duration_secs: None,
+                },
+            )
+            .await
+            .unwrap();
+        let row = &storage.episodes(&slug).await.unwrap()[0];
+        assert_eq!(row.bytes_done, None);
+        assert_eq!(row.progress_at, None);
     }
 
     #[tokio::test]

@@ -274,6 +274,9 @@ fn print_show_text(show: &report::ShowStatus) {
             )
             .dimmed(),
         );
+        if let Some(description) = episode.description.as_deref() {
+            println!("           {}", description.italic().dimmed());
+        }
         println!(
             "           {}",
             format!("blake3 {}", episode.blake3.as_deref().unwrap_or("?")).dimmed()

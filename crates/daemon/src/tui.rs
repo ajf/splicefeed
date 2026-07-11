@@ -115,8 +115,15 @@ async fn run_loop(
 
 /// Render one frame. Pure over [`App`], so tests can assert the buffer.
 pub fn draw(frame: &mut Frame, app: &App) {
-    let [header, shows, episodes, footer] = Layout::vertical([
+    let active = active_downloads(&app.report);
+    let downloads_height = if active.is_empty() {
+        0
+    } else {
+        (active.len() as u16 + 2).min(6)
+    };
+    let [header, downloads, shows, episodes, footer] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(downloads_height),
         Constraint::Length((app.report.shows.len() as u16 + 3).min(12)),
         Constraint::Min(4),
         Constraint::Length(1),
@@ -127,9 +134,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         Paragraph::new(Line::from(vec![
             " splicefeed ".bold().reversed(),
             format!(
-                " {} file(s) · {} · {}",
+                " {} file(s) · {} · {} download slot(s) · {}",
                 app.report.total_files,
                 humansize::format_size(app.report.total_bytes, humansize::DECIMAL),
+                app.report.download_concurrency,
                 app.report.data_dir.display(),
             )
             .into(),
@@ -137,6 +145,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
         header,
     );
 
+    if !active.is_empty() {
+        draw_downloads(frame, app, &active, downloads);
+    }
     draw_shows(frame, app, shows);
     if let Some(show) = app.report.shows.get(app.selected) {
         draw_episodes(frame, show, episodes);
@@ -153,6 +164,88 @@ pub fn draw(frame: &mut Frame, app: &App) {
         Paragraph::new(" ↑/↓ select · r refresh · q quit").dim(),
         footer,
     );
+}
+
+/// One in-flight download as the TUI shows it.
+struct ActiveDownload<'a> {
+    show: &'a splicefeed::ShowSlug,
+    episode: &'a crate::report::EpisodeStatus,
+}
+
+fn active_downloads(report: &StatusReport) -> Vec<ActiveDownload<'_>> {
+    report
+        .shows
+        .iter()
+        .flat_map(|show| {
+            show.episodes
+                .iter()
+                .filter(|episode| matches!(episode.state, EpisodeState::Downloading))
+                .map(move |episode| ActiveDownload {
+                    show: &show.slug,
+                    episode,
+                })
+        })
+        .collect()
+}
+
+/// Progress written more than this long ago counts as stalled (writes
+/// come every ~1s while bytes flow).
+const STALL_AFTER: Duration = Duration::from_secs(10);
+
+fn draw_downloads(frame: &mut Frame, app: &App, active: &[ActiveDownload<'_>], area: Rect) {
+    let now = jiff::Timestamp::now();
+    let rows = active.iter().map(|dl| {
+        let done = dl.episode.bytes_done;
+        let total = dl.episode.bytes_total;
+        let percent = match (done, total) {
+            (Some(done), Some(total)) if total > 0 => {
+                format!("{:>3.0}%", done as f64 / total as f64 * 100.0)
+            }
+            _ => "  ?%".into(),
+        };
+        let bytes = format!(
+            "{} / {}",
+            done.map_or("?".into(), |b| humansize::format_size(
+                b,
+                humansize::DECIMAL
+            )),
+            total.map_or("?".into(), |b| humansize::format_size(
+                b,
+                humansize::DECIMAL
+            )),
+        );
+        let stalled = dl.episode.progress_at.is_none_or(|at| {
+            now.since(at)
+                .map(|span| span.get_seconds() >= STALL_AFTER.as_secs() as i64)
+                .unwrap_or(true)
+        });
+        let health = if stalled {
+            Cell::from("stalled").style(Style::new().fg(Color::Red).add_modifier(Modifier::BOLD))
+        } else {
+            Cell::from("active").style(Style::new().fg(Color::Green))
+        };
+        Row::new(vec![
+            Cell::from(format!("{}/{}", dl.show, dl.episode.id)),
+            Cell::from(percent).style(Style::new().fg(Color::Yellow)),
+            Cell::from(bytes),
+            health,
+        ])
+    });
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(24),
+            Constraint::Length(5),
+            Constraint::Length(24),
+            Constraint::Length(8),
+        ],
+    )
+    .block(Block::new().borders(Borders::ALL).title(format!(
+        "downloads ({}/{} slots)",
+        active.len().min(app.report.download_concurrency),
+        app.report.download_concurrency
+    )));
+    frame.render_widget(table, area);
 }
 
 fn draw_shows(frame: &mut Frame, app: &App, area: Rect) {
@@ -221,6 +314,8 @@ fn draw_episodes(frame: &mut Frame, show: &ShowStatus, area: Rect) {
                 humantime::format_duration(Duration::from_secs(secs.into())).to_string()
             })),
             Cell::from(episode.downloaded_at.as_ref().map_or("—".into(), stamp)),
+            Cell::from(episode.description.as_deref().unwrap_or("—").to_owned())
+                .style(Style::new().dim()),
         ])
     });
 
@@ -231,12 +326,20 @@ fn draw_episodes(frame: &mut Frame, show: &ShowStatus, area: Rect) {
             Constraint::Length(12),
             Constraint::Length(12),
             Constraint::Length(10),
-            Constraint::Min(20),
+            Constraint::Length(17),
+            Constraint::Min(16),
         ],
     )
     .header(
-        Row::new(vec!["episode", "state", "size", "length", "downloaded"])
-            .style(Style::new().add_modifier(Modifier::BOLD)),
+        Row::new(vec![
+            "episode",
+            "state",
+            "size",
+            "length",
+            "downloaded",
+            "description",
+        ])
+        .style(Style::new().add_modifier(Modifier::BOLD)),
     )
     .block(
         Block::new()
@@ -283,6 +386,7 @@ mod tests {
                 episodes: vec![
                     EpisodeStatus {
                         id: "162".parse().expect("valid id"),
+                        description: Some("with Mark Pledger".into()),
                         state: EpisodeState::Cached,
                         bytes: Some(288_111_664),
                         mime: Some(splicefeed::AudioMime::Mpeg),
@@ -290,9 +394,27 @@ mod tests {
                         blake3: Some("ab".repeat(32)),
                         file_path: Some("/data/media/x/162.mp3".into()),
                         downloaded_at: Some("2026-07-11T22:14:29Z".parse().expect("valid ts")),
+                        bytes_done: None,
+                        bytes_total: None,
+                        progress_at: None,
                     },
                     EpisodeStatus {
                         id: "161".parse().expect("valid id"),
+                        description: None,
+                        state: EpisodeState::Downloading,
+                        bytes: None,
+                        mime: None,
+                        duration_secs: None,
+                        blake3: None,
+                        file_path: None,
+                        downloaded_at: None,
+                        bytes_done: Some(144_000_000),
+                        bytes_total: Some(288_000_000),
+                        progress_at: Some(jiff::Timestamp::now()),
+                    },
+                    EpisodeStatus {
+                        id: "160".parse().expect("valid id"),
+                        description: None,
                         state: EpisodeState::Failed(splicefeed::ErrorClass::Network),
                         bytes: None,
                         mime: None,
@@ -300,12 +422,16 @@ mod tests {
                         blake3: None,
                         file_path: None,
                         downloaded_at: None,
+                        bytes_done: None,
+                        bytes_total: None,
+                        progress_at: None,
                     },
                 ],
             }],
             configured_never_synced: vec![],
             total_files: 1,
             total_bytes: 288_111_664,
+            download_concurrency: 2,
             state_db: "/data/splicefeed.db".into(),
             data_dir: "/data".into(),
         }
@@ -335,6 +461,35 @@ mod tests {
         assert!(content.contains("failed"));
         assert!(content.contains("288.11 MB"));
         assert!(content.contains("q quit"));
+        assert!(
+            content.contains("with Mark Pledger"),
+            "episode description is rendered"
+        );
+    }
+
+    #[test]
+    fn active_download_panel_shows_progress_and_health() {
+        let content = rendered(&App {
+            report: fake_report(),
+            selected: 0,
+        });
+        assert!(content.contains("downloads (1/2 slots)"));
+        assert!(content.contains("melodik-revolution/161"));
+        assert!(content.contains("50%"));
+        assert!(content.contains("144 MB / 288 MB"));
+        assert!(content.contains("active"));
+    }
+
+    #[test]
+    fn stale_progress_reads_as_stalled() {
+        let mut report = fake_report();
+        report.shows[0].episodes[1].progress_at =
+            Some("2026-07-11T00:00:00Z".parse().expect("valid ts"));
+        let content = rendered(&App {
+            report,
+            selected: 0,
+        });
+        assert!(content.contains("stalled"));
     }
 
     #[test]
@@ -345,6 +500,7 @@ mod tests {
                 configured_never_synced: vec![],
                 total_files: 0,
                 total_bytes: 0,
+                download_concurrency: 2,
                 state_db: "/data/splicefeed.db".into(),
                 data_dir: "/data".into(),
             },

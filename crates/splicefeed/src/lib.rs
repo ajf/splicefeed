@@ -333,6 +333,7 @@ impl Library {
                         bytes: None,
                     },
                     &dest,
+                    None,
                 )
                 .await
                 .map(|_| ())
@@ -533,7 +534,11 @@ impl Library {
         self.storage.mark_downloading(slug, &episode.id).await?;
         let source = provider.resolve_audio(slug, &episode.id).await?;
         let dest = self.media_path(slug, &episode.id, &source);
-        let got = self.downloader.fetch(&source, &dest).await?;
+        let progress = progress_writer(self.storage.clone(), slug.clone(), episode.id.clone());
+        let got = self
+            .downloader
+            .fetch(&source, &dest, Some(&progress))
+            .await?;
         // Only probe the file when the provider's listing had no duration.
         let duration_secs = match episode.duration_secs {
             Some(_) => None,
@@ -660,6 +665,40 @@ fn under(base: &Url, segments: &[&str]) -> Option<Url> {
         .pop_if_empty()
         .extend(segments);
     Some(url)
+}
+
+/// A throttled progress callback for one episode: at most one storage
+/// write per second, spawned off the transfer loop so the download never
+/// waits on SQLite. The write is guarded by `state = 'downloading'`, so a
+/// racing completion wins.
+fn progress_writer(
+    storage: Storage,
+    slug: ShowSlug,
+    id: EpisodeId,
+) -> impl Fn(u64, Option<u64>) + Send + Sync {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let started = std::time::Instant::now();
+    let last_write_ms = AtomicU64::new(u64::MAX); // force an immediate first write
+    move |done, total| {
+        let now_ms = started.elapsed().as_millis() as u64;
+        let prev = last_write_ms.load(Ordering::Relaxed);
+        if prev != u64::MAX && now_ms.saturating_sub(prev) < 1_000 {
+            return;
+        }
+        if last_write_ms
+            .compare_exchange(prev, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return; // another chunk's callback just wrote
+        }
+        let (storage, slug, id) = (storage.clone(), slug.clone(), id.clone());
+        tokio::spawn(async move {
+            if let Err(err) = storage.set_progress(&slug, &id, done, total).await {
+                tracing::debug!(show = %slug, episode = %id, error = %err,
+                    "progress write failed");
+            }
+        });
+    }
 }
 
 /// File extension for an audio source, from its MIME type when known,
