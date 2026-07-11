@@ -263,6 +263,19 @@ impl Storage {
         .await
     }
 
+    /// Record where a show's cached artwork lives.
+    pub async fn set_artwork_path(&self, slug: &ShowSlug, path: &Path) -> Result<(), StorageError> {
+        let (slug, path) = (slug.clone(), path.to_owned());
+        self.with(move |conn| {
+            conn.execute(
+                "UPDATE shows SET artwork_path = ?2 WHERE slug = ?1",
+                params![slug.as_str(), path.to_string_lossy()],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Fetch one show row.
     pub async fn show(&self, slug: &ShowSlug) -> Result<Option<ShowRecord>, StorageError> {
         let slug = slug.clone();

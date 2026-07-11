@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
         let path = feed_dir.join(format!("{slug}.xml"));
         let mut out = BufWriter::new(File::create(&path)?);
-        library.write_feed(slug, &mut out)?;
+        library.write_feed(slug, &mut out).await?;
         println!("{slug}: feed written to {}", path.display());
     }
     Ok(())

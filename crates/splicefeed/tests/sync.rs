@@ -208,6 +208,62 @@ async fn fetch_last_bounds_discovery_and_download() {
 }
 
 #[tokio::test]
+async fn feed_is_deterministic_valid_and_external() {
+    let server = MockServer::start().await;
+    mount_api(&server).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let library = open_library_with(
+        &server,
+        dir.path(),
+        "external_base_url = \"http://nas.lan:8380\"",
+    )
+    .await;
+    let slug: ShowSlug = "test-show".parse().expect("valid slug");
+
+    // Before any sync there is nothing to build a feed from.
+    let mut out = Vec::new();
+    assert!(matches!(
+        library.write_feed(&slug, &mut out).await,
+        Err(splicefeed::LibraryError::NotSynced(_))
+    ));
+
+    library.sync(&slug).await.expect("sync succeeds");
+    let mut first = Vec::new();
+    library
+        .write_feed(&slug, &mut first)
+        .await
+        .expect("feed writes");
+    let mut second = Vec::new();
+    library
+        .write_feed(&slug, &mut second)
+        .await
+        .expect("feed writes again");
+    assert_eq!(first, second, "byte-identical regeneration");
+
+    let parsed = feed_rs::parser::parse(first.as_slice()).expect("valid feed");
+    assert_eq!(parsed.entries.len(), 2);
+    assert_eq!(parsed.entries[0].id, "difm/test-show/162");
+    let enclosure = parsed.entries[0]
+        .media
+        .first()
+        .and_then(|m| m.content.first())
+        .and_then(|c| c.url.as_ref())
+        .expect("enclosure")
+        .to_string();
+    assert!(
+        enclosure.starts_with("http://nas.lan:8380/media/test-show/"),
+        "enclosures come from external_base_url, got {enclosure}"
+    );
+
+    // An unknown show is rejected, not an empty feed.
+    let ghost: ShowSlug = "ghost".parse().expect("valid slug");
+    assert!(matches!(
+        library.write_feed(&ghost, &mut Vec::new()).await,
+        Err(splicefeed::LibraryError::UnknownShow(_))
+    ));
+}
+
+#[tokio::test]
 async fn verify_detects_and_fixes_damage() {
     let server = MockServer::start().await;
     mount_api(&server).await;

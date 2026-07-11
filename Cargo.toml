@@ -29,11 +29,15 @@ jiff = { version = "0.2", features = ["serde"] }
 humansize = "2"
 humantime = "2"
 colored = "3"
+quick-xml = "0.41"
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs"] }
+feed-rs = "2"
 etcetera = "0.8"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 wiremock = "0.6"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "signal"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 blake3 = "1"
 tempfile = "3"

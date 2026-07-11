@@ -5,8 +5,6 @@
 //! or telemetry exporter crates — it records via facades, the binary
 //! exports. See `DESIGN.md` ("Workspace layout") for the boundary rule.
 //!
-//! Artwork caching and RSS generation land here in milestone 4.
-
 #![deny(missing_docs)]
 
 pub mod config;
@@ -14,4 +12,5 @@ pub mod domain;
 pub mod download;
 pub mod ipc;
 pub mod retention;
+pub mod rss;
 pub mod storage;

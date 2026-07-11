@@ -12,7 +12,7 @@
 //! let slug: splicefeed::ShowSlug = "melodik-revolution".parse()?;
 //! library.sync(&slug).await?;
 //! let mut feed = Vec::new();
-//! library.write_feed(&slug, &mut feed)?;
+//! library.write_feed(&slug, &mut feed).await?;
 //! # Ok(()) }
 //! ```
 //!
@@ -25,8 +25,9 @@ use std::path::PathBuf;
 
 use futures_util::StreamExt;
 use splicefeed_core::download::{Downloader, blake3_of_file, probe_duration};
-use splicefeed_core::retention;
 use splicefeed_core::storage::{CachedFile, Storage};
+use splicefeed_core::{retention, rss};
+use url::Url;
 
 pub use splicefeed_core::config::{ArtworkOverride, Config, ConfigError, Retention, ShowConfig};
 pub use splicefeed_core::domain::{
@@ -57,6 +58,13 @@ pub enum LibraryError {
     /// The named show is not in the configuration.
     #[error("show `{0}` is not configured")]
     UnknownShow(ShowSlug),
+    /// The show is configured but has never been synced — there is
+    /// nothing in storage to build a feed from.
+    #[error("show `{0}` has not been synced yet")]
+    NotSynced(ShowSlug),
+    /// Writing the feed to the output sink failed.
+    #[error("failed to write feed: {0}")]
+    Feed(#[from] std::io::Error),
 }
 
 /// What [`Library::verify`] found for one show.
@@ -206,6 +214,7 @@ impl Library {
             }
         };
         self.storage.upsert_show(&meta, show.provider()).await?;
+        self.cache_artwork(show, &meta, slug).await;
         let discovered = self.storage.discover(slug, &episodes).await?;
 
         // Plan retention over the listing *before* downloading: an
@@ -250,14 +259,18 @@ impl Library {
                 )
             })
             .collect();
-        let downloaded = futures_util::stream::iter(
-            pending
-                .iter()
-                .map(|ep| self.download_episode(provider.as_ref(), slug, ep)),
-        )
-        .buffer_unordered(self.config.download_concurrency().get())
-        .fold(0_u32, |done, ok| async move { done + u32::from(ok) })
-        .await;
+        // Futures built eagerly: a lazy `.map` here leaves a
+        // higher-ranked closure bound the compiler cannot discharge once
+        // this future crosses a `tokio::spawn` (`'static`) boundary.
+        let downloads: Vec<_> = pending
+            .iter()
+            .copied()
+            .map(|ep| self.download_episode(provider.as_ref(), slug, ep))
+            .collect();
+        let downloaded = futures_util::stream::iter(downloads)
+            .buffer_unordered(self.config.download_concurrency().get())
+            .fold(0_u32, |done, ok| async move { done + u32::from(ok) })
+            .await;
 
         let pruned = self.apply_retention(slug, &policy).await?;
 
@@ -267,6 +280,90 @@ impl Library {
             downloaded,
             pruned,
         })
+    }
+
+    /// Cache the show's artwork to `<data_dir>/artwork/<slug>.<ext>`,
+    /// once. The config override (local path or URL) beats provider
+    /// artwork. Best-effort by design: failure is logged and the feed
+    /// simply omits its `itunes:image` — never fatal to a sync.
+    async fn cache_artwork(&self, show: &ShowConfig, meta: &ShowMeta, slug: &ShowSlug) {
+        enum Source {
+            Fetch(Url),
+            Copy(PathBuf),
+        }
+        let existing = match self.storage.show(slug).await {
+            Ok(record) => record.and_then(|r| r.artwork_path),
+            Err(err) => {
+                tracing::warn!(show = %slug, error = %err, "artwork: storage lookup failed");
+                return;
+            }
+        };
+        if let Some(path) = &existing
+            && tokio::fs::try_exists(path).await.unwrap_or(false)
+        {
+            return;
+        }
+        let source = match show.artwork() {
+            Some(ArtworkOverride::Url(url)) => Some(Source::Fetch(url.clone())),
+            Some(ArtworkOverride::Path(path)) => Some(Source::Copy(path.clone())),
+            None => meta.artwork.clone().map(Source::Fetch),
+        };
+        let Some(source) = source else { return };
+
+        let ext = match &source {
+            Source::Fetch(url) => url_extension(url).unwrap_or("img").to_owned(),
+            Source::Copy(path) => path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("img")
+                .to_owned(),
+        };
+        let dest = self
+            .config
+            .data_dir()
+            .join("artwork")
+            .join(format!("{slug}.{ext}"));
+        let fetched = match source {
+            Source::Fetch(url) => self
+                .downloader
+                .fetch(
+                    &AudioSource {
+                        url,
+                        mime: None,
+                        bytes: None,
+                    },
+                    &dest,
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            Source::Copy(from) => {
+                async {
+                    if let Some(parent) = dest.parent() {
+                        tokio::fs::create_dir_all(parent)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                    }
+                    tokio::fs::copy(&from, &dest)
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                }
+                .await
+            }
+        };
+        match fetched {
+            Ok(()) => {
+                if let Err(err) = self.storage.set_artwork_path(slug, &dest).await {
+                    tracing::warn!(show = %slug, error = %err, "artwork: could not record path");
+                } else {
+                    tracing::info!(show = %slug, path = %dest.display(), "artwork cached");
+                }
+            }
+            Err(reason) => {
+                tracing::warn!(show = %slug, %reason, "artwork caching failed; feed will omit it");
+            }
+        }
     }
 
     /// Check every cached episode of a show against its database record:
@@ -332,11 +429,61 @@ impl Library {
         })
     }
 
-    /// Write the show's podcast RSS feed. Byte-identical across calls when
-    /// no episodes changed.
-    pub fn write_feed<W: Write>(&self, slug: &ShowSlug, _out: &mut W) -> Result<(), LibraryError> {
-        let _show = self.show_config(slug)?;
-        todo!("milestone 4: deterministic RSS generation")
+    /// Write the show's podcast RSS feed. Byte-identical across calls
+    /// when nothing changed. Enclosure and artwork URLs are built from
+    /// the configured external base URL — never the bind address — and
+    /// point at this daemon's `/media` and `/artwork` routes, so no
+    /// upstream credential can ever appear in a feed.
+    pub async fn write_feed<W: Write>(
+        &self,
+        slug: &ShowSlug,
+        out: &mut W,
+    ) -> Result<(), LibraryError> {
+        let show = self.show_config(slug)?;
+        let record = self
+            .storage
+            .show(slug)
+            .await?
+            .ok_or_else(|| LibraryError::NotSynced(slug.clone()))?;
+        let base = self.config.external_base_url();
+
+        let title = show
+            .title()
+            .map_or_else(|| record.title.clone(), str::to_owned);
+        let items = self
+            .episode_records(slug)
+            .await?
+            .into_iter()
+            .filter(|ep| matches!(ep.state, EpisodeState::Cached))
+            .filter_map(|ep| {
+                let file = ep.file_path.as_deref()?.file_name()?.to_str()?.to_owned();
+                Some(rss::Item {
+                    guid: format!("{}/{}/{}", show.provider(), slug, ep.id),
+                    title: ep.title,
+                    description: ep.description,
+                    published_at: ep.published_at,
+                    enclosure_url: under(&base, &["media", slug.as_str(), &file])?,
+                    enclosure_bytes: ep.bytes?,
+                    enclosure_mime: ep
+                        .mime
+                        .map_or_else(|| "application/octet-stream".to_owned(), |m| m.to_string()),
+                    duration_secs: ep.duration_secs,
+                })
+            })
+            .collect();
+
+        let feed = rss::Feed {
+            link: base.clone(),
+            description: record.description.unwrap_or_else(|| title.clone()),
+            title,
+            artwork: record
+                .artwork_path
+                .as_deref()
+                .and_then(|p| p.file_name()?.to_str())
+                .and_then(|name| under(&base, &["artwork", name])),
+            items,
+        };
+        Ok(rss::write(&feed, out)?)
     }
 
     fn show_config(&self, slug: &ShowSlug) -> Result<&ShowConfig, LibraryError> {
@@ -504,22 +651,33 @@ async fn check_file(episode: &EpisodeRecord) -> Option<FileProblem> {
     }
 }
 
+/// A URL under `base`, extending its path — correct whether or not the
+/// base has a trailing slash (`Url::join` would swallow a last segment).
+fn under(base: &Url, segments: &[&str]) -> Option<Url> {
+    let mut url = base.clone();
+    url.path_segments_mut()
+        .ok()?
+        .pop_if_empty()
+        .extend(segments);
+    Some(url)
+}
+
 /// File extension for an audio source, from its MIME type when known,
 /// else from the URL path, else a neutral fallback.
 fn extension_for(source: &AudioSource) -> &str {
     if let Some(ext) = source.mime.as_ref().and_then(AudioMime::extension) {
         return ext;
     }
-    match source.url.path().rsplit('.').next() {
-        Some(ext)
-            if !ext.contains('/')
-                && (1..=4).contains(&ext.len())
-                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
-        {
-            ext
-        }
-        _ => "bin",
-    }
+    url_extension(&source.url).unwrap_or("bin")
+}
+
+/// A plausible file extension from a URL path, if it has one.
+fn url_extension(url: &Url) -> Option<&str> {
+    url.path().rsplit('.').next().filter(|ext| {
+        !ext.contains('/')
+            && (1..=4).contains(&ext.len())
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    })
 }
 
 /// A failure while syncing one episode, unified across the provider,

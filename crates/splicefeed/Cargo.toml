@@ -9,12 +9,14 @@ splicefeed-core.workspace = true
 splicefeed-providers.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+url.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+feed-rs.workspace = true
 wiremock.workspace = true
 tempfile.workspace = true
 serde_json.workspace = true

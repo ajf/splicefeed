@@ -6,11 +6,13 @@
 //! (milestones 4–7).
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
+use splicefeed_daemon::{report, server};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -96,113 +98,19 @@ enum OutputFormat {
     Json,
 }
 
-/// Snapshot of the library assembled for `status`. The JSON output *is*
-/// this struct, and the text renderer reads from it too, so the two
-/// formats can never drift apart.
-#[derive(serde::Serialize)]
-struct StatusReport {
-    shows: Vec<ShowStatus>,
-    configured_never_synced: Vec<splicefeed::ShowSlug>,
-    total_files: usize,
-    total_bytes: u64,
-    state_db: std::path::PathBuf,
-    data_dir: std::path::PathBuf,
-}
-
-#[derive(serde::Serialize)]
-struct ShowStatus {
-    slug: splicefeed::ShowSlug,
-    title: String,
-    provider: String,
-    last_poll_at: Option<jiff::Timestamp>,
-    last_poll_ok: Option<bool>,
-    last_error: Option<String>,
-    cached_bytes: u64,
-    episodes: Vec<EpisodeStatus>,
-}
-
-#[derive(serde::Serialize)]
-struct EpisodeStatus {
-    id: splicefeed::EpisodeId,
-    state: EpisodeState,
-    bytes: Option<u64>,
-    mime: Option<splicefeed::AudioMime>,
-    duration_secs: Option<u32>,
-    blake3: Option<String>,
-    file_path: Option<std::path::PathBuf>,
-    downloaded_at: Option<jiff::Timestamp>,
-}
-
 /// Report the library's state straight from the database — no daemon or
 /// socket involved, safe to run alongside one (WAL + busy timeout).
 async fn status(config_path: Option<&std::path::Path>, format: OutputFormat) -> anyhow::Result<()> {
     let config = Config::load(config_path)?;
     let library = Library::open(config).await?;
 
-    let shows = library.show_records().await?;
-    let show_reports =
-        futures_util::future::try_join_all(shows.iter().map(|show| show_status(&library, show)))
-            .await?;
-    let configured_never_synced: Vec<splicefeed::ShowSlug> = library
-        .config()
-        .shows()
-        .iter()
-        .map(|show| show.slug())
-        .filter(|slug| !shows.iter().any(|record| &record.slug == *slug))
-        .cloned()
-        .collect();
-
-    let report = StatusReport {
-        total_files: show_reports
-            .iter()
-            .flat_map(|show| &show.episodes)
-            .filter(|episode| matches!(episode.state, EpisodeState::Cached))
-            .count(),
-        total_bytes: show_reports.iter().map(|show| show.cached_bytes).sum(),
-        state_db: library.config().data_dir().join("splicefeed.db"),
-        data_dir: library.config().data_dir().to_owned(),
-        shows: show_reports,
-        configured_never_synced,
-    };
+    let report = report::status_report(&library).await?;
 
     match format {
         OutputFormat::Text => print_text(&report),
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
     }
     Ok(())
-}
-
-async fn show_status(
-    library: &Library,
-    show: &splicefeed::ShowRecord,
-) -> Result<ShowStatus, splicefeed::LibraryError> {
-    let episodes = library.episode_records(&show.slug).await?;
-    Ok(ShowStatus {
-        slug: show.slug.clone(),
-        title: show.title.clone(),
-        provider: show.provider.clone(),
-        last_poll_at: show.last_poll_at,
-        last_poll_ok: show.last_poll_ok,
-        last_error: show.last_error.clone(),
-        cached_bytes: episodes
-            .iter()
-            .filter(|episode| matches!(episode.state, EpisodeState::Cached))
-            .filter_map(|episode| episode.bytes)
-            .sum(),
-        episodes: episodes
-            .into_iter()
-            .map(|episode| EpisodeStatus {
-                id: episode.id,
-                state: episode.state,
-                bytes: episode.bytes,
-                mime: episode.mime,
-                duration_secs: episode.duration_secs,
-                blake3: episode.blake3.map(|hash| hash.to_hex().to_string()),
-                file_path: episode.file_path,
-                downloaded_at: episode.downloaded_at,
-            })
-            .collect(),
-    })
 }
 
 /// Width of the horizontal rules separating shows.
@@ -212,7 +120,7 @@ fn rule(glyph: &str) -> colored::ColoredString {
     glyph.repeat(RULE_WIDTH).dimmed()
 }
 
-fn print_text(report: &StatusReport) {
+fn print_text(report: &report::StatusReport) {
     if report.shows.is_empty() {
         println!(
             "{}",
@@ -252,7 +160,7 @@ fn print_text(report: &StatusReport) {
     );
 }
 
-fn print_show_text(show: &ShowStatus) {
+fn print_show_text(show: &report::ShowStatus) {
     println!("{}", rule("─"));
     println!(
         "{} — {} {}",
@@ -284,7 +192,7 @@ fn print_show_text(show: &ShowStatus) {
             .iter()
             .filter(move |episode| wanted(&episode.state))
     };
-    let cached: Vec<&EpisodeStatus> =
+    let cached: Vec<&report::EpisodeStatus> =
         of_state(|state| matches!(state, EpisodeState::Cached)).collect();
     let failed: Vec<String> = show
         .episodes
@@ -605,7 +513,30 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
 
     match mode {
         Mode::Once => sync_all_once(&library).await,
-        Mode::Serve => bail!("the serve loop lands in milestones 4–5 (server + scheduler)"),
+        Mode::Serve => {
+            let library = Arc::new(library);
+            // Interim until the milestone-5 scheduler lands: converge
+            // once in the background, then serve until ctrl-c.
+            tokio::spawn(initial_sync(Arc::clone(&library)));
+            server::serve(library, shutdown_signal()).await
+        }
+    }
+}
+
+async fn initial_sync(library: Arc<Library>) {
+    if let Err(err) = sync_all_once(&library).await {
+        tracing::error!(error = %err, "initial sync failed");
+    }
+}
+
+async fn shutdown_signal() {
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => tracing::info!("shutdown signal received"),
+        Err(err) => {
+            // No signal handler means no clean way to stop; serve on.
+            tracing::error!(error = %err, "failed to install ctrl-c handler");
+            std::future::pending::<()>().await
+        }
     }
 }
 

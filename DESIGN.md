@@ -235,11 +235,12 @@ reusable buffer. Determinism rules:
 - `/artwork/<show>.<ext>` — cached to disk at sync time; TOML override
   (local path or URL) beats provider artwork
 - `/healthz` — liveness + last-successful-poll per show
-- `/metrics` — Prometheus scrape (same OTel registry)
+- `/debug` — the `status` CLI report as JSON (operator request)
+- `/metrics` — Prometheus scrape (same OTel registry; milestone 7)
 
 Binds loopback by default; exposing wider is an explicit config choice.
-Optional single static bearer token / secret path prefix when LAN-bound.
-No TLS (Caddy in front if needed), no privileged ports, no root.
+No TLS and no auth of any kind — operator decision 2026-07-11: Caddy
+fronts anything that needs either. No privileged ports, no root.
 
 ## IPC + status TUI
 
@@ -286,7 +287,7 @@ server involved:
 let config = splicefeed::Config::load(path)?;
 let lib = splicefeed::Library::open(&config).await?;
 lib.sync(&show_slug).await?;
-lib.write_feed(&show_slug, &mut out)?;
+lib.write_feed(&show_slug, &mut out).await?;
 ```
 
 `examples/sync_once.rs` demonstrates exactly this and is compile-tested in CI
@@ -307,6 +308,10 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    *(done — `run --once` works end to end)*
 4. **RSS + server** — feed generation, axum routes, range-served media.
    **← usable milestone: feeds work in a real podcast app here.**
+   *(done — /feeds, /media (range-served), /artwork, /healthz, /debug;
+   artwork cached at sync time. `run` currently syncs once at startup
+   then serves; the jittered scheduler is milestone 5. `write_feed`
+   became `async` — it reads storage.)*
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
 6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (A
    plain-text/JSON `status` that reads the database directly shipped

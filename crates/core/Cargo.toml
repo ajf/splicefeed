@@ -22,7 +22,9 @@ tempfile.workspace = true
 backon.workspace = true
 lofty.workspace = true
 tracing.workspace = true
+quick-xml.workspace = true
 
 [dev-dependencies]
+feed-rs.workspace = true
 wiremock.workspace = true
 

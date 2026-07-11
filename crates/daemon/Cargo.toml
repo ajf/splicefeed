@@ -22,3 +22,11 @@ futures-util.workspace = true
 humansize.workspace = true
 humantime.workspace = true
 colored.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tempfile.workspace = true
+wiremock.workspace = true
+feed-rs.workspace = true
