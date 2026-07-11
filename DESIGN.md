@@ -308,7 +308,8 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    *(done — `run --once` works end to end)*
 4. **RSS + server** — feed generation, axum routes, range-served media.
    **← usable milestone: feeds work in a real podcast app here.**
-   *(done — /feeds, /media (range-served), /artwork, /healthz, /debug;
+   *(done — validated end to end in Apple Podcasts, 2026-07-12;
+   /feeds, /media (range-served), /artwork, /healthz, /debug;
    artwork cached at sync time. `run` currently syncs once at startup
    then serves; the jittered scheduler is milestone 5. `write_feed`
    became `async` — it reads storage.)*
