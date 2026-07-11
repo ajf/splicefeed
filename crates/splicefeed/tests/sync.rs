@@ -101,7 +101,7 @@ async fn open_library(server: &MockServer, data_dir: &std::path::Path) -> Librar
             keep_last = 1
 
             [auth.difm]
-            listen_key = "test-key"
+            api_key = "member-key"
             base_url = "{base}/"
 
             [[shows]]

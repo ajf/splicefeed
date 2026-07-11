@@ -58,12 +58,12 @@ were reviewed and approved before implementation.
 | RSS XML | hand-written via `quick-xml` writer | **Deliberate hand-roll.** The spec demands byte-identical regeneration; owning every byte (element order, attribute order, no `lastBuildDate`) is simpler than auditing the `rss` crate's output stability across versions. The itunes namespace surface we emit is small. This is one of the two sanctioned hand-rolls (see below). |
 | IPC framing | newline-delimited JSON | Debuggable with `socat`/`jq`; framing efficiency is irrelevant on a local control socket. `postcard` rejected. |
 | Metrics | `opentelemetry`/`opentelemetry_sdk` as the single registry; OTLP via `PeriodicReader` (off by default), Prometheus `/metrics` via the `opentelemetry-prometheus` reader | One source of truth, as required. Known risk: the prometheus bridge crate has historically lagged the SDK; versions are pinned together in the workspace and telemetry lands in the last milestone, so if the bridge is incompatible at that point we re-evaluate (fallback: OTel SDK + a thin manual encoder over its in-memory reader). The TUI reads from the same in-process state/instrumentation layer — no parallel bookkeeping. |
-| Config | `figment` (TOML file + `SPLICEFEED_CONFIG`/`DIFM_LISTEN_KEY` env overrides, env wins) | Exactly the layering semantics required, without hand-rolling precedence. |
+| Config | `figment` (TOML file + `SPLICEFEED_CONFIG`/`DIFM_API_KEY`/`DIFM_LISTEN_KEY` env overrides, env wins) | Exactly the layering semantics required, without hand-rolling precedence. |
 | HTTP client | `reqwest` (rustls, streaming) | Standard. |
 | Retries/backoff | `backon` | Small, maintained, async-native. |
 | Paths | `etcetera` | XDG + macOS conventions. |
 | Duration probing | `lofty` | Read duration/tags from downloaded files when the API doesn't provide them; never parse MP3 frames by hand. |
-| Secrets | `secrecy` for the listen key; `ListenKey` newtype wraps `SecretString` with a redacting `Debug`/`Display` | Key must never appear in logs; URL logging goes through a redaction helper. |
+| Secrets | `secrecy` for the member API key (required) and listen key (optional); `ApiKey`/`ListenKey` newtypes wrap `SecretString` with redacting `Debug` | Keys must never appear in logs; URL logging goes through a redaction helper that also masks `api_key`/`audio_token`/`listen_key` query params. |
 | Checksums | `blake3` | Hash while streaming to disk; stored in SQLite. Upstream gives us nothing better than `Content-Length`, so our own hash is the integrity anchor for retention checks and re-download decisions. |
 | Atomic writes | `tempfile` in the destination directory + `persist()` | Same-filesystem rename. |
 
@@ -134,9 +134,9 @@ tests):
   a recognized parameter — bogus values get 403 "Invalid API Key" — and
   takes the *member API key*, a separate credential (found in the
   logged-in di.fm page source; `[auth.difm] api_key` / `DIFM_API_KEY`).
-  `resolve_audio` sends `?api_key=` when configured and still appends the
-  listen key to resolved audio URLs, which is what it historically
-  authorizes (premium stream hosts).
+  The API key is therefore the **required** difm credential; the listen
+  key is optional and only ever appended to a legacy unsigned stream-host
+  audio URL (none observed since the signed playback URLs).
 - **Confirmed 2026-07-11 with a real member API key:** an authenticated
   episode carries `tracks[].content.assets[].url` — a signed, short-lived
   playback URL on `content.audioaddict.com` (`audio_token`, `member_id`,

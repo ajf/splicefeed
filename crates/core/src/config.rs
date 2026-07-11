@@ -2,9 +2,9 @@
 //!
 //! Resolution order for the file path: explicit `--config` argument, then
 //! `SPLICEFEED_CONFIG`, then `~/.config/splicefeed/config.toml`. The DI.FM
-//! listen key may come from the file or `DIFM_LISTEN_KEY`; the env var wins.
-//! Loading refuses to succeed if a configured show needs credentials that
-//! are absent.
+//! member API key may come from the file or `DIFM_API_KEY` (env wins), the
+//! optional listen key likewise via `DIFM_LISTEN_KEY`. Loading refuses to
+//! succeed if a configured show needs credentials that are absent.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -38,10 +38,11 @@ pub enum ConfigError {
     Load(#[from] Box<figment::Error>),
     /// A show uses a provider whose required credentials are absent.
     #[error(
-        "show `{show}` uses provider `{provider}`, which requires a listen key; \
-         set [auth.{provider}] listen_key in the config or the {DIFM_LISTEN_KEY_ENV} env var"
+        "show `{show}` uses provider `{provider}`, which requires a member API key; \
+         set [auth.{provider}] api_key in the config or the {DIFM_API_KEY_ENV} env var \
+         (the listen key alone cannot fetch episode audio)"
     )]
-    MissingListenKey {
+    MissingApiKey {
         /// The show whose provider needs credentials.
         show: ShowSlug,
         /// The provider name.
@@ -80,8 +81,8 @@ impl Config {
     /// Load, layer, and validate configuration.
     ///
     /// `explicit_path` (from `--config`) beats `SPLICEFEED_CONFIG`, which
-    /// beats the platform default. `DIFM_LISTEN_KEY` overrides any key in
-    /// the file.
+    /// beats the platform default. `DIFM_API_KEY`/`DIFM_LISTEN_KEY`
+    /// override the corresponding keys in the file.
     pub fn load(explicit_path: Option<&Path>) -> Result<Self, ConfigError> {
         let path = match explicit_path {
             Some(p) => p.to_owned(),
@@ -127,8 +128,8 @@ impl Config {
             if !seen.insert(show.slug.clone()) {
                 return Err(ConfigError::DuplicateShow(show.slug.clone()));
             }
-            if show.provider == "difm" && self.difm_listen_key().is_none() {
-                return Err(ConfigError::MissingListenKey {
+            if show.provider == "difm" && self.difm_api_key().is_none() {
+                return Err(ConfigError::MissingApiKey {
                     show: show.slug.clone(),
                     provider: show.provider.clone(),
                 });
@@ -182,14 +183,16 @@ impl Config {
         &self.shows
     }
 
-    /// The DI.FM premium listen key, if configured.
+    /// The DI.FM premium listen key, if configured. Optional: only used
+    /// for legacy unsigned stream-host audio URLs; the API and its signed
+    /// playback URLs are authorized by the member API key alone.
     pub fn difm_listen_key(&self) -> Option<&ListenKey> {
         self.auth.difm.as_ref()?.listen_key.as_ref()
     }
 
-    /// The AudioAddict member API key, if configured. Required for episode
-    /// audio: the listen key alone does not unlock API content assets
-    /// (confirmed empirically 2026-07-11).
+    /// The AudioAddict member API key — the credential that authorizes the
+    /// API, including episode audio (confirmed empirically 2026-07-11).
+    /// Required when any show uses the `difm` provider.
     pub fn difm_api_key(&self) -> Option<&ApiKey> {
         self.auth.difm.as_ref()?.api_key.as_ref()
     }
@@ -381,7 +384,7 @@ mod tests {
         let config = parse(
             r#"
             [auth.difm]
-            listen_key = "abc123"
+            api_key = "abc123"
 
             [[shows]]
             slug = "melodik-revolution"
@@ -393,21 +396,26 @@ mod tests {
         assert_eq!(config.poll_interval(), Duration::from_secs(1800));
         assert_eq!(config.shows().len(), 1);
         assert_eq!(config.shows()[0].provider(), "difm");
-        assert!(config.difm_listen_key().is_some());
+        assert!(config.difm_api_key().is_some());
+        assert!(config.difm_listen_key().is_none(), "listen key is optional");
         assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn difm_show_without_key_is_rejected() {
+    fn difm_show_without_api_key_is_rejected() {
+        // A listen key alone is not enough — it cannot fetch episode audio.
         let config = parse(
             r#"
+            [auth.difm]
+            listen_key = "abc123"
+
             [[shows]]
             slug = "anything-melodic"
             "#,
         );
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::MissingListenKey { .. })
+            Err(ConfigError::MissingApiKey { .. })
         ));
     }
 
@@ -416,7 +424,7 @@ mod tests {
         let config = parse(
             r#"
             [auth.difm]
-            listen_key = "abc"
+            api_key = "abc"
 
             [[shows]]
             slug = "x"
@@ -443,7 +451,7 @@ mod tests {
             max_gb = 20.0
 
             [auth.difm]
-            listen_key = "abc"
+            api_key = "abc"
 
             [[shows]]
             slug = "melodik-revolution"
@@ -471,7 +479,7 @@ mod tests {
         let config = parse(
             r#"
             [auth.difm]
-            listen_key = "abc"
+            api_key = "abc"
             "#,
         );
         assert_eq!(

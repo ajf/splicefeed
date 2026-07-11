@@ -19,19 +19,19 @@
 //! every arrangement, `X-Listen-Key` header, nor on `GET tracks/<id>`) —
 //! it authorizes premium *stream hosts*, not the API. `?api_key=` is a
 //! recognized parameter (bogus values get 403 "Invalid API Key") and takes
-//! the member API key, a separate credential. [`DifmProvider::resolve_audio`]
-//! sends `?api_key=` when one is configured and fails loudly with a hint
-//! otherwise.
+//! the member API key, a separate credential — the one this provider
+//! requires. [`DifmProvider::resolve_audio`] always sends `?api_key=`.
 //!
 //! Confirmed 2026-07-11 with a real member API key: an authenticated
 //! episode carries `tracks[].content.assets[].url`, a **signed, short-lived
 //! playback URL** on `content.audioaddict.com` (`audio_token` + an `auth`
 //! HMAC over the query string + an `exp` a day out). It authorizes itself,
 //! so `resolve_audio` must *not* append the listen key — doing so
-//! invalidates the signature (403). The listen-key append is kept only for
-//! a bare stream-host URL that carries no signature of its own. Because the
-//! URL expires, audio is resolved immediately before each download, never
-//! cached.
+//! invalidates the signature (403). The listen key is therefore entirely
+//! optional: it is appended only to a bare stream-host URL that carries no
+//! signature of its own (the legacy shape, not observed since the signed
+//! URLs). Because the URL expires, audio is resolved immediately before
+//! each download, never cached.
 
 mod v1;
 
@@ -61,26 +61,27 @@ const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub struct DifmProvider {
     http: reqwest::Client,
     base_url: Url,
-    listen_key: ListenKey,
-    api_key: Option<ApiKey>,
+    api_key: ApiKey,
+    listen_key: Option<ListenKey>,
     quarantine: Quarantine,
     per_page: u32,
 }
 
 /// Builder for [`DifmProvider`].
 pub struct DifmProviderBuilder {
-    listen_key: ListenKey,
-    api_key: Option<ApiKey>,
+    api_key: ApiKey,
+    listen_key: Option<ListenKey>,
     base_url: Option<Url>,
     quarantine_dir: Option<PathBuf>,
     per_page: Option<u32>,
 }
 
 impl DifmProviderBuilder {
-    /// The member API key — required for episode audio resolution (the
-    /// listen key alone does not unlock API content assets).
-    pub fn api_key(mut self, api_key: ApiKey) -> Self {
-        self.api_key = Some(api_key);
+    /// The premium listen key. Optional: only appended to legacy unsigned
+    /// stream-host audio URLs; the API's signed playback URLs authorize
+    /// themselves.
+    pub fn listen_key(mut self, listen_key: ListenKey) -> Self {
+        self.listen_key = Some(listen_key);
         self
     }
 
@@ -119,8 +120,8 @@ impl DifmProviderBuilder {
         Ok(DifmProvider {
             http,
             base_url,
-            listen_key: self.listen_key,
             api_key: self.api_key,
+            listen_key: self.listen_key,
             quarantine: Quarantine::new(
                 self.quarantine_dir
                     .unwrap_or_else(|| PathBuf::from("quarantine").join("difm")),
@@ -131,11 +132,12 @@ impl DifmProviderBuilder {
 }
 
 impl DifmProvider {
-    /// Start building a provider from the premium listen key.
-    pub fn builder(listen_key: ListenKey) -> DifmProviderBuilder {
+    /// Start building a provider from the member API key — the one
+    /// credential the API actually requires.
+    pub fn builder(api_key: ApiKey) -> DifmProviderBuilder {
         DifmProviderBuilder {
-            listen_key,
-            api_key: None,
+            api_key,
+            listen_key: None,
             base_url: None,
             quarantine_dir: None,
             per_page: None,
@@ -250,16 +252,10 @@ impl Provider for DifmProvider {
         show: &ShowSlug,
         episode: &EpisodeId,
     ) -> Result<AudioSource, ProviderError> {
-        // Content assets require the member API key (see module docs);
-        // the legacy listen_key parameter is kept as a fallback when no
-        // API key is configured, but is not expected to work.
-        let query: [(&str, &str); 1] = match &self.api_key {
-            Some(api_key) => [("api_key", api_key.expose())],
-            None => [("listen_key", self.listen_key.expose())],
-        };
+        // Content assets require the member API key (see module docs).
         let url = self.endpoint(
             &["shows", show.as_str(), "episodes", episode.as_str()],
-            &query,
+            &[("api_key", self.api_key.expose())],
         )?;
         let payload = self
             .get_text(url)
@@ -268,17 +264,11 @@ impl Provider for DifmProvider {
         let wire: v1::Episode = self.parse(&payload, &format!("episode-{show}-{episode}"))?;
 
         let Some(mut audio_url) = wire.audio_url() else {
-            let hint = if self.api_key.is_some() {
-                "the response held no audio asset despite an api_key; either the key is \
-                 stale/wrong or the upstream schema drifted — run `splicefeed probe`"
-            } else {
-                "no [auth.difm] api_key is configured, and the listen key alone does not \
-                 unlock episode audio (confirmed 2026-07-11); set the member API key in \
-                 the config or the DIFM_API_KEY env var"
-            };
             return Err(ProviderError::NoAudioAsset {
                 episode: episode.clone(),
-                hint: hint.into(),
+                hint: "the response held no audio asset despite an api_key; either the key \
+                       is stale/wrong or the upstream schema drifted — run `splicefeed probe`"
+                    .into(),
             });
         };
         // With a member api_key the API returns a fully signed, short-lived
@@ -290,10 +280,10 @@ impl Provider for DifmProvider {
         let already_authorized = audio_url
             .query_pairs()
             .any(|(k, _)| matches!(k.as_ref(), "listen_key" | "audio_token" | "auth"));
-        if !already_authorized {
+        if !already_authorized && let Some(listen_key) = &self.listen_key {
             audio_url
                 .query_pairs_mut()
-                .append_pair("listen_key", self.listen_key.expose());
+                .append_pair("listen_key", listen_key.expose());
         }
         let mime = v1::mime_for(&audio_url).map(str::to_owned);
         Ok(AudioSource {
@@ -317,13 +307,13 @@ impl ProviderFactory for DifmFactory {
     }
 
     fn create(&self, config: &Config) -> Result<Arc<dyn Provider>, ProviderError> {
-        let key = config
-            .difm_listen_key()
+        let api_key = config
+            .difm_api_key()
             .ok_or(ProviderError::MissingCredentials("difm"))?;
-        let mut builder = DifmProvider::builder(key.clone())
+        let mut builder = DifmProvider::builder(api_key.clone())
             .quarantine_dir(config.data_dir().join("quarantine").join("difm"));
-        if let Some(api_key) = config.difm_api_key() {
-            builder = builder.api_key(api_key.clone());
+        if let Some(listen_key) = config.difm_listen_key() {
+            builder = builder.listen_key(listen_key.clone());
         }
         if let Some(base_url) = config.difm_base_url() {
             builder = builder.base_url(base_url.clone());

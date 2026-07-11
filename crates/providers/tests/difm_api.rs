@@ -2,7 +2,7 @@
 //! wiremock. Fixtures were captured live on 2026-07-11; `splicefeed probe`
 //! is the tool for noticing when the live API drifts away from them.
 
-use splicefeed_core::domain::{ListenKey, ShowSlug};
+use splicefeed_core::domain::{ApiKey, ListenKey, ShowSlug};
 use splicefeed_providers::difm::DifmProvider;
 use splicefeed_providers::{Provider, ProviderError};
 use wiremock::matchers::{method, path, query_param};
@@ -17,7 +17,8 @@ fn fixture(name: &str) -> String {
 }
 
 fn provider_for(server: &MockServer, quarantine: &std::path::Path) -> DifmProvider {
-    DifmProvider::builder(ListenKey::new("test-key".into()))
+    DifmProvider::builder(ApiKey::new("member-key".into()))
+        .listen_key(ListenKey::new("test-key".into()))
         .base_url(server.uri().parse().expect("mock uri parses"))
         .quarantine_dir(quarantine)
         .build()
@@ -174,7 +175,7 @@ async fn resolve_audio_without_asset_fails_with_hint_and_sends_key() {
     // Unauthenticated-shaped single episode: content empty, asset_url is art.
     Mock::given(method("GET"))
         .and(path("/shows/melodik-revolution/episodes/162"))
-        .and(query_param("listen_key", "test-key"))
+        .and(query_param("api_key", "member-key"))
         .respond_with(
             ResponseTemplate::new(200).set_body_string(fixture("episode_162_unauth.json")),
         )
@@ -194,13 +195,12 @@ async fn resolve_audio_without_asset_fails_with_hint_and_sends_key() {
 }
 
 #[tokio::test]
-async fn resolve_audio_prefers_api_key_when_configured() {
+async fn resolve_audio_without_listen_key_leaves_unsigned_url_bare() {
     let server = MockServer::start().await;
     let tmp = tempdir();
     let body = r#"{"slug": "162", "tracks": [
         {"length": 7200, "content": {"assets": [{"url": "//prem2.di.fm/shows/mr/ep162.mp4"}]}}
     ]}"#;
-    // Only answers when the member api_key is the query credential.
     Mock::given(method("GET"))
         .and(path("/shows/melodik-revolution/episodes/162"))
         .and(query_param("api_key", "member-key"))
@@ -208,8 +208,8 @@ async fn resolve_audio_prefers_api_key_when_configured() {
         .mount(&server)
         .await;
 
-    let provider = DifmProvider::builder(ListenKey::new("test-key".into()))
-        .api_key(splicefeed_core::domain::ApiKey::new("member-key".into()))
+    // No listen key configured at all — the api_key alone must suffice.
+    let provider = DifmProvider::builder(ApiKey::new("member-key".into()))
         .base_url(server.uri().parse().expect("mock uri parses"))
         .quarantine_dir(&tmp)
         .build()
@@ -220,15 +220,12 @@ async fn resolve_audio_prefers_api_key_when_configured() {
             &"162".parse().expect("valid id"),
         )
         .await
-        .expect("resolves via api_key");
+        .expect("resolves without a listen key");
 
     assert_eq!(audio.url.host_str(), Some("prem2.di.fm"));
-    // The stream host still gets the listen key.
     assert!(
-        audio
-            .url
-            .query()
-            .is_some_and(|q| q.contains("listen_key=test-key"))
+        !audio.url.query_pairs().any(|(k, _)| k == "listen_key"),
+        "no listen key to append"
     );
     cleanup(tmp);
 }
