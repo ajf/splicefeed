@@ -245,7 +245,9 @@ impl FromStr for ErrorClass {
 }
 
 /// Lifecycle of an episode: `Discovered → Downloading → Cached → Pruned`,
-/// with `Failed` as a retryable detour out of `Downloading`.
+/// with `Failed` as a retryable detour out of `Downloading`, and
+/// `Cached → Downloading` for re-downloading a file that failed
+/// verification (`splicefeed verify --fix`).
 ///
 /// Pruned rows stay in storage so a pruned episode is never re-discovered
 /// as "new".
@@ -271,7 +273,9 @@ impl EpisodeState {
             (Self::Discovered, Self::Downloading) => true,
             (Self::Downloading, Self::Cached | Self::Failed(_)) => true,
             (Self::Failed(_), Self::Downloading) => true,
-            (Self::Cached, Self::Pruned) => true,
+            // Downloading out of Cached = re-fetch after a failed
+            // file verification.
+            (Self::Cached, Self::Downloading | Self::Pruned) => true,
             (
                 Self::Discovered
                 | Self::Downloading
@@ -528,6 +532,7 @@ mod tests {
         assert!(Downloading.can_transition_to(Failed(ErrorClass::Network)));
         assert!(Failed(ErrorClass::Disk).can_transition_to(Downloading));
         assert!(Cached.can_transition_to(Pruned));
+        assert!(Cached.can_transition_to(Downloading)); // verify --fix
         assert!(!Pruned.can_transition_to(Downloading));
         assert!(!Discovered.can_transition_to(Cached));
     }

@@ -24,7 +24,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use futures_util::StreamExt;
-use splicefeed_core::download::{Downloader, probe_duration};
+use splicefeed_core::download::{Downloader, blake3_of_file, probe_duration};
 use splicefeed_core::retention;
 use splicefeed_core::storage::{CachedFile, Storage};
 
@@ -57,6 +57,65 @@ pub enum LibraryError {
     /// The named show is not in the configuration.
     #[error("show `{0}` is not configured")]
     UnknownShow(ShowSlug),
+}
+
+/// What [`Library::verify`] found for one show.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VerifyReport {
+    /// Cached episodes examined.
+    pub checked: u32,
+    /// Episodes whose file matched its record exactly.
+    pub intact: u32,
+    /// Episodes whose file did not (empty = everything checks out).
+    pub problems: Vec<VerifyOutcome>,
+}
+
+/// One episode that failed verification.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VerifyOutcome {
+    /// The episode.
+    pub id: EpisodeId,
+    /// What was wrong with its file.
+    pub problem: FileProblem,
+    /// Whether a re-download restored it (always `false` without
+    /// `fix`; when `false` under `fix`, the episode is now recorded as
+    /// [`EpisodeState::Failed`] and retried by later syncs).
+    pub fixed: bool,
+}
+
+/// How a cached episode's file can disagree with its database record.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileProblem {
+    /// The file is gone (or the record never stored a path).
+    Missing,
+    /// The file exists but its size differs from the record.
+    SizeMismatch {
+        /// Bytes the record promises.
+        expected: u64,
+        /// Bytes on disk.
+        actual: u64,
+    },
+    /// Right size, wrong content: the blake3 does not match.
+    HashMismatch,
+    /// The file could not be read at all.
+    Unreadable {
+        /// The underlying I/O error.
+        reason: String,
+    },
+}
+
+impl std::fmt::Display for FileProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => f.write_str("missing"),
+            Self::SizeMismatch { expected, actual } => {
+                write!(f, "size mismatch (expected {expected} bytes, got {actual})")
+            }
+            Self::HashMismatch => f.write_str("hash mismatch"),
+            Self::Unreadable { reason } => write!(f, "unreadable: {reason}"),
+        }
+    }
 }
 
 /// What a [`Library::sync`] run did for one show.
@@ -177,6 +236,69 @@ impl Library {
             discovered,
             downloaded,
             pruned,
+        })
+    }
+
+    /// Check every cached episode of a show against its database record:
+    /// the file must exist, match the recorded size, and match the
+    /// recorded blake3. With `fix`, damaged episodes are re-downloaded on
+    /// the spot (fresh audio URL, atomic replace, record updated); a
+    /// failed fix leaves the episode [`EpisodeState::Failed`] for later
+    /// syncs to retry.
+    ///
+    /// Checking needs only storage; fixing requires the show to be
+    /// configured (its provider supplies the new download).
+    pub async fn verify(&self, slug: &ShowSlug, fix: bool) -> Result<VerifyReport, LibraryError> {
+        let provider = if fix {
+            Some(self.providers.get(self.show_config(slug)?.provider())?)
+        } else {
+            None
+        };
+        let cached: Vec<EpisodeRecord> = self
+            .storage
+            .episodes(slug)
+            .await?
+            .into_iter()
+            .filter(|ep| matches!(ep.state, EpisodeState::Cached))
+            .collect();
+
+        let problems: Vec<VerifyOutcome> = futures_util::stream::iter(
+            cached
+                .iter()
+                .map(|ep| self.verify_episode(provider.map(|p| p.as_ref()), slug, ep)),
+        )
+        .buffer_unordered(self.config.download_concurrency().get())
+        .filter_map(|outcome| async move { outcome })
+        .collect()
+        .await;
+
+        let checked = cached.len() as u32;
+        Ok(VerifyReport {
+            checked,
+            intact: checked - problems.len() as u32,
+            problems,
+        })
+    }
+
+    /// `None` when the episode's file matches its record; otherwise the
+    /// problem, after an optional fix attempt.
+    async fn verify_episode(
+        &self,
+        provider: Option<&dyn Provider>,
+        slug: &ShowSlug,
+        episode: &EpisodeRecord,
+    ) -> Option<VerifyOutcome> {
+        let problem = check_file(episode).await?;
+        tracing::warn!(show = %slug, episode = %episode.id, %problem,
+            "cached file failed verification");
+        let fixed = match provider {
+            Some(provider) => self.download_episode(provider, slug, episode).await,
+            None => false,
+        };
+        Some(VerifyOutcome {
+            id: episode.id.clone(),
+            problem,
+            fixed,
         })
     }
 
@@ -316,6 +438,39 @@ impl Library {
             .join("media")
             .join(slug.as_str())
             .join(format!("{stem}.{}", extension_for(source)))
+    }
+}
+
+/// How a cached episode's file disagrees with its record, if it does.
+async fn check_file(episode: &EpisodeRecord) -> Option<FileProblem> {
+    let Some(path) = episode.file_path.as_deref() else {
+        return Some(FileProblem::Missing);
+    };
+    let meta = match tokio::fs::metadata(path).await {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(FileProblem::Missing),
+        Err(e) => {
+            return Some(FileProblem::Unreadable {
+                reason: e.to_string(),
+            });
+        }
+    };
+    if let Some(expected) = episode.bytes
+        && meta.len() != expected
+    {
+        return Some(FileProblem::SizeMismatch {
+            expected,
+            actual: meta.len(),
+        });
+    }
+    // A cached row without a hash has nothing further to check against.
+    let expected = episode.blake3?;
+    match blake3_of_file(path).await {
+        Ok(actual) if actual == expected => None,
+        Ok(_) => Some(FileProblem::HashMismatch),
+        Err(e) => Some(FileProblem::Unreadable {
+            reason: e.to_string(),
+        }),
     }
 }
 

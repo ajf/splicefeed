@@ -8,6 +8,7 @@ description = "Turn DI.FM premium radio shows into podcast RSS feeds — embedda
 splicefeed-core.workspace = true
 splicefeed-providers.workspace = true
 thiserror.workspace = true
+serde.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tracing.workspace = true

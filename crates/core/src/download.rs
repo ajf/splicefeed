@@ -244,6 +244,19 @@ impl Downloader {
     }
 }
 
+/// blake3 of a file on disk, streamed on the blocking pool — the
+/// verification-time counterpart of the hash computed during download.
+pub async fn blake3_of_file(path: impl AsRef<Path>) -> std::io::Result<blake3::Hash> {
+    let path = path.as_ref().to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut hasher = blake3::Hasher::new();
+        std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
+        Ok(hasher.finalize())
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
 /// Duration of an audio file in whole seconds, probed with `lofty` — used
 /// when the provider's listing carried no duration. `None` when the file
 /// cannot be parsed; never an error, a feed without `itunes:duration`
@@ -351,6 +364,19 @@ mod tests {
         if result.is_err() {
             assert!(!dest.exists());
         }
+    }
+
+    #[tokio::test]
+    async fn blake3_of_file_matches_the_streaming_hash() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("audio.bin");
+        let body = vec![0xCD_u8; 300 * 1024];
+        std::fs::write(&path, &body).expect("write");
+        assert_eq!(
+            blake3_of_file(&path).await.expect("hashes"),
+            blake3::hash(&body)
+        );
+        assert!(blake3_of_file(dir.path().join("nope")).await.is_err());
     }
 
     #[tokio::test]

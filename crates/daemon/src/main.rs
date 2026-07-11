@@ -44,6 +44,18 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
+    /// Check cached audio files against the database: existence, size,
+    /// and blake3 hash.
+    Verify {
+        /// Show slug; verifies every configured show when omitted.
+        slug: Option<String>,
+        /// Re-download files that are missing or corrupt.
+        #[arg(long)]
+        fix: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+    },
     /// Hit the live provider API for one show and report what parsed —
     /// the early-warning system for upstream API drift.
     Probe {
@@ -68,6 +80,9 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Command::Status { format } => status(cli.config.as_deref(), format).await,
+        Command::Verify { slug, fix, format } => {
+            verify(cli.config.as_deref(), slug.as_deref(), fix, format).await
+        }
         Command::Probe { slug } => probe(cli.config.as_deref(), &slug).await,
     }
 }
@@ -320,12 +335,10 @@ fn print_show_text(show: &ShowStatus) {
         println!(
             "  {}  {:>10}  {}  {:>9}  {}",
             format!("{:>8}", episode.id).bold(),
-            episode
-                .bytes
-                .map_or("?".into(), |b| humansize::format_size(
-                    b,
-                    humansize::DECIMAL
-                )),
+            episode.bytes.map_or("?".into(), |b| humansize::format_size(
+                b,
+                humansize::DECIMAL
+            )),
             format!(
                 "{:<11}",
                 episode
@@ -380,6 +393,107 @@ fn count_part(
 
 fn stamp(at: &jiff::Timestamp) -> String {
     at.strftime("%Y-%m-%d %H:%M:%SZ").to_string()
+}
+
+/// What `verify` reports: one entry per show checked.
+#[derive(serde::Serialize)]
+struct VerifyRun {
+    shows: Vec<ShowVerify>,
+}
+
+#[derive(serde::Serialize)]
+struct ShowVerify {
+    slug: splicefeed::ShowSlug,
+    #[serde(flatten)]
+    report: splicefeed::VerifyReport,
+}
+
+/// Check cached files against the database, optionally re-downloading
+/// damage. Exits non-zero when problems remain, so cron jobs notice.
+async fn verify(
+    config_path: Option<&std::path::Path>,
+    slug: Option<&str>,
+    fix: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let config = Config::load(config_path)?;
+    let library = Library::open(config).await?;
+
+    let slugs: Vec<splicefeed::ShowSlug> = match slug {
+        Some(raw) => vec![raw.parse()?],
+        None => library
+            .config()
+            .shows()
+            .iter()
+            .map(|show| show.slug().clone())
+            .collect(),
+    };
+    let reports =
+        futures_util::future::try_join_all(slugs.iter().map(|slug| library.verify(slug, fix)))
+            .await?;
+    let run = VerifyRun {
+        shows: slugs
+            .into_iter()
+            .zip(reports)
+            .map(|(slug, report)| ShowVerify { slug, report })
+            .collect(),
+    };
+
+    match format {
+        OutputFormat::Text => print_verify_text(&run, fix),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&run)?),
+    }
+
+    let unfixed = run
+        .shows
+        .iter()
+        .flat_map(|show| &show.report.problems)
+        .filter(|problem| !problem.fixed)
+        .count();
+    if unfixed > 0 {
+        bail!(
+            "{unfixed} file(s) failed verification{}",
+            if fix {
+                " and could not be fixed"
+            } else {
+                " (run with --fix to re-download)"
+            }
+        );
+    }
+    Ok(())
+}
+
+fn print_verify_text(run: &VerifyRun, fix: bool) {
+    run.shows.iter().for_each(|show| {
+        println!("{}", rule("─"));
+        let intact = format!("{} intact", show.report.intact);
+        println!(
+            "{} — {} checked · {}",
+            show.slug.to_string().bold().cyan(),
+            show.report.checked,
+            if show.report.problems.is_empty() {
+                intact.green()
+            } else {
+                intact.normal()
+            },
+        );
+        show.report.problems.iter().for_each(|outcome| {
+            let verdict = if outcome.fixed {
+                "fixed ✓".green().bold()
+            } else if fix {
+                "NOT FIXED".red().bold()
+            } else {
+                "run --fix to re-download".yellow()
+            };
+            println!(
+                "  {}  {}  {}",
+                format!("{:>8}", outcome.id).bold(),
+                outcome.problem.to_string().red(),
+                verdict,
+            );
+        });
+        println!();
+    });
 }
 
 /// Hit the live provider API and report what parsed — the early-warning

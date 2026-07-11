@@ -3,7 +3,7 @@
 //! (hash, atomic write), retention pruning, and tombstone behavior.
 
 use serde_json::json;
-use splicefeed::{Config, Library, ShowSlug};
+use splicefeed::{Config, FileProblem, Library, ShowSlug};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -169,6 +169,53 @@ async fn fetch_last_bounds_discovery_and_download() {
     let media = dir.path().join("media").join("test-show");
     assert!(media.join("162.m4a").exists(), "newest downloaded");
     assert!(!media.join("161.m4a").exists(), "older never fetched");
+}
+
+#[tokio::test]
+async fn verify_detects_and_fixes_damage() {
+    let server = MockServer::start().await;
+    mount_api(&server).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let library = open_library_with(&server, dir.path(), "fetch_last = 1").await;
+    let slug: ShowSlug = "test-show".parse().expect("valid slug");
+    library.sync(&slug).await.expect("sync succeeds");
+    let media = dir.path().join("media").join("test-show").join("162.m4a");
+
+    // Pristine cache: nothing to report.
+    let report = library.verify(&slug, false).await.expect("verify runs");
+    assert_eq!(report.checked, 1);
+    assert_eq!(report.intact, 1);
+    assert!(report.problems.is_empty());
+
+    // Same size, different content: only the hash notices.
+    std::fs::write(&media, vec![0_u8; AUDIO_NEW.len()]).expect("corrupt file");
+    let report = library.verify(&slug, false).await.expect("verify runs");
+    assert_eq!(report.problems[0].problem, FileProblem::HashMismatch);
+    assert!(!report.problems[0].fixed, "no --fix, no download");
+
+    // --fix restores the original bytes.
+    let report = library.verify(&slug, true).await.expect("verify fixes");
+    assert!(report.problems[0].fixed);
+    assert_eq!(std::fs::read(&media).expect("file back"), AUDIO_NEW);
+
+    // Truncation is caught by size before hashing.
+    std::fs::write(&media, b"short").expect("truncate file");
+    let report = library.verify(&slug, false).await.expect("verify runs");
+    assert!(matches!(
+        report.problems[0].problem,
+        FileProblem::SizeMismatch { actual: 5, .. }
+    ));
+
+    // Deletion reads as missing, and --fix recovers that too.
+    std::fs::remove_file(&media).expect("delete file");
+    let report = library.verify(&slug, true).await.expect("verify fixes");
+    assert_eq!(report.problems[0].problem, FileProblem::Missing);
+    assert!(report.problems[0].fixed);
+    assert_eq!(std::fs::read(&media).expect("file back"), AUDIO_NEW);
+
+    // And the library is clean again afterwards.
+    let report = library.verify(&slug, false).await.expect("verify runs");
+    assert_eq!(report.intact, 1);
 }
 
 #[tokio::test]
