@@ -276,7 +276,9 @@ lib.write_feed(&show_slug, &mut out)?;
 ```
 
 `examples/sync_once.rs` demonstrates exactly this and is compile-tested in CI
-as the contract of the public API. `#![deny(missing_docs)]` on all lib crates;
+as the contract of the public API. Embedders whose settings don't live in a
+file the library can read use `Config::from_toml_str` — identical env
+layering, defaults, and validation, no filesystem involved. `#![deny(missing_docs)]` on all lib crates;
 `pub` only what the binary and examples need.
 
 ## Milestones

@@ -94,11 +94,24 @@ impl Config {
         if !path.is_file() {
             return Err(ConfigError::NotFound(path));
         }
+        Self::from_figment(Figment::new().merge(Toml::file(&path)))
+    }
 
-        let mut config: Config = Figment::new()
-            .merge(Toml::file(&path))
-            .extract()
-            .map_err(Box::new)?;
+    /// Parse configuration from a TOML string — for embedders whose
+    /// settings do not live in a file this library can read.
+    ///
+    /// Everything except locating the file behaves exactly like
+    /// [`Config::load`]: the same env overrides win, the same defaults
+    /// fill in (including the platform data dir), and the same
+    /// validation rejects unusable configs.
+    pub fn from_toml_str(toml: &str) -> Result<Self, ConfigError> {
+        Self::from_figment(Figment::new().merge(Toml::string(toml)))
+    }
+
+    /// Shared tail of every construction path: extract, layer env
+    /// overrides, fill defaults, validate.
+    fn from_figment(figment: Figment) -> Result<Self, ConfigError> {
+        let mut config: Config = figment.extract().map_err(Box::new)?;
 
         if let Ok(key) = std::env::var(DIFM_LISTEN_KEY_ENV) {
             config
@@ -472,6 +485,46 @@ mod tests {
         let effective = show.retention(config.retention());
         assert_eq!(effective.keep_last(), Some(5));
         assert_eq!(effective.max_bytes(), Some(20_000_000_000));
+    }
+
+    // The from_toml_str tests must stay robust against DIFM_API_KEY /
+    // DIFM_LISTEN_KEY being exported in the invoking shell (the env
+    // overrides apply, by design), so they never assert a key is absent.
+
+    #[test]
+    fn from_toml_str_needs_no_file_and_fills_defaults() {
+        let config = Config::from_toml_str(
+            r#"
+            [auth.difm]
+            api_key = "abc123"
+
+            [[shows]]
+            slug = "melodik-revolution"
+            "#,
+        )
+        .expect("parses and validates");
+
+        assert_eq!(config.bind().port(), 8380);
+        assert!(config.difm_api_key().is_some());
+        // The platform default data dir is resolved, same as load().
+        assert!(config.data_dir().is_absolute());
+    }
+
+    #[test]
+    fn from_toml_str_runs_the_same_validation() {
+        let err = Config::from_toml_str(
+            r#"
+            [auth.difm]
+            api_key = "abc"
+
+            [[shows]]
+            slug = "x"
+            [[shows]]
+            slug = "x"
+            "#,
+        )
+        .expect_err("duplicate slugs rejected");
+        assert!(matches!(err, ConfigError::DuplicateShow(_)));
     }
 
     #[test]

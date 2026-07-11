@@ -90,29 +90,24 @@ async fn mount_api(server: &MockServer) {
 }
 
 async fn open_library(server: &MockServer, data_dir: &std::path::Path) -> Library {
-    let config_path = data_dir.join("config.toml");
-    std::fs::write(
-        &config_path,
-        format!(
-            r#"
-            data_dir = "{data}"
+    let config = Config::from_toml_str(&format!(
+        r#"
+        data_dir = "{data}"
 
-            [retention]
-            keep_last = 1
+        [retention]
+        keep_last = 1
 
-            [auth.difm]
-            api_key = "member-key"
-            base_url = "{base}/"
+        [auth.difm]
+        api_key = "member-key"
+        base_url = "{base}/"
 
-            [[shows]]
-            slug = "test-show"
-            "#,
-            data = data_dir.display(),
-            base = server.uri(),
-        ),
-    )
-    .expect("write config");
-    let config = Config::load(Some(&config_path)).expect("config loads");
+        [[shows]]
+        slug = "test-show"
+        "#,
+        data = data_dir.display(),
+        base = server.uri(),
+    ))
+    .expect("config parses");
     Library::open(config).await.expect("library opens")
 }
 
