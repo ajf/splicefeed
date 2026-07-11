@@ -165,29 +165,31 @@ impl Episode {
     /// The first plausible audio URL in this episode's tracks, normalized
     /// to absolute. Checks `content.assets[].url` and `content.url`;
     /// `asset_url` is only trusted when it has an audio-looking extension
-    /// (unauthenticated it points at artwork).
+    /// (without member auth it points at artwork).
     pub fn audio_url(&self) -> Option<Url> {
-        for track in &self.tracks {
-            if let Some(content) = &track.content {
-                let from_assets = content
-                    .assets
-                    .iter()
-                    .flatten()
-                    .find_map(|asset| asset.url.as_deref());
-                if let Some(url) = from_assets.or(content.url.as_deref())
-                    && let Some(url) = normalize_url(url)
-                {
-                    return Some(url);
-                }
-            }
-            if let Some(raw) = track.asset_url.as_deref()
-                && has_audio_extension(raw)
-                && let Some(url) = normalize_url(raw)
-            {
-                return Some(url);
-            }
-        }
-        None
+        self.tracks.iter().find_map(Track::audio_url)
+    }
+}
+
+impl Track {
+    /// This track's audio URL, if any: `content.assets[].url`, then
+    /// `content.url`, then an extension-gated `asset_url`.
+    fn audio_url(&self) -> Option<Url> {
+        let from_content = self.content.as_ref().and_then(|content| {
+            content
+                .assets
+                .iter()
+                .flatten()
+                .find_map(|asset| asset.url.as_deref())
+                .or(content.url.as_deref())
+                .and_then(normalize_url)
+        });
+        from_content.or_else(|| {
+            self.asset_url
+                .as_deref()
+                .filter(|raw| has_audio_extension(raw))
+                .and_then(normalize_url)
+        })
     }
 }
 

@@ -332,12 +332,9 @@ impl Storage {
                  FROM episodes WHERE show_slug = ?1
                  ORDER BY published_at DESC, provider_episode_id DESC",
             )?;
-            let rows = stmt.query_map(params![show.as_str()], decode_episode)?;
-            let mut episodes = Vec::new();
-            for row in rows {
-                episodes.push(row??);
-            }
-            Ok(episodes)
+            stmt.query_map(params![show.as_str()], decode_episode)?
+                .map(|row| row?)
+                .collect()
         })
         .await
     }

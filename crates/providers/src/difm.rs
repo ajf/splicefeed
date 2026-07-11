@@ -226,23 +226,23 @@ impl Provider for DifmProvider {
         // Parse the array shell first, then each entry on its own, so one
         // drifted episode quarantines that entry instead of the whole poll.
         let entries: Vec<serde_json::Value> = self.parse(&payload, &format!("episodes-{slug}"))?;
-        let mut episodes = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let raw = entry.to_string();
-            let parsed = serde_json::from_value::<v1::Episode>(entry)
-                .map_err(|e| e.to_string())
-                .and_then(|wire| EpisodeMeta::try_from(wire).map_err(|e| e.to_string()));
-            match parsed {
-                Ok(meta) => episodes.push(meta),
-                Err(reason) => {
-                    let path = self
-                        .quarantine
-                        .write_or_note(&format!("episode-entry-{slug}"), &raw);
-                    tracing::warn!(show = %slug, %reason, quarantined = ?path,
-                        "difm: skipping unparseable episode entry");
-                }
-            }
-        }
+        let mut episodes: Vec<EpisodeMeta> = entries
+            .into_iter()
+            .filter_map(|entry| {
+                let raw = entry.to_string();
+                serde_json::from_value::<v1::Episode>(entry)
+                    .map_err(|e| e.to_string())
+                    .and_then(|wire| EpisodeMeta::try_from(wire).map_err(|e| e.to_string()))
+                    .inspect_err(|reason| {
+                        let path = self
+                            .quarantine
+                            .write_or_note(&format!("episode-entry-{slug}"), &raw);
+                        tracing::warn!(show = %slug, %reason, quarantined = ?path,
+                            "difm: skipping unparseable episode entry");
+                    })
+                    .ok()
+            })
+            .collect();
         episodes.sort_by_key(|e| std::cmp::Reverse(e.published_at));
         Ok(episodes)
     }
