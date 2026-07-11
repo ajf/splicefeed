@@ -17,30 +17,42 @@ pub struct Candidate {
     pub bytes: u64,
 }
 
-/// Given the cached episodes of one show, **newest first** (the storage
-/// ordering), return the ids to prune, oldest-first.
-pub fn plan(policy: &Retention, newest_first: &[Candidate]) -> Vec<EpisodeId> {
-    let mut kept: u32 = 0;
+/// Partition **newest-first** candidates into the ids the policy keeps
+/// (newest-first) and the ids it rejects (oldest-first, ready to prune).
+///
+/// The sync engine runs this twice per poll: over the *listing* before
+/// downloading — with projected sizes — so episodes that would be pruned
+/// right back out are never fetched (and tombstones that fit a widened
+/// window are revived), and over the cached rows afterwards with real
+/// sizes to do the actual pruning.
+pub fn split(policy: &Retention, newest_first: &[Candidate]) -> (Vec<EpisodeId>, Vec<EpisodeId>) {
     let mut kept_bytes: u64 = 0;
+    let mut kept = Vec::new();
     let mut doomed = Vec::new();
     for candidate in newest_first {
-        let over_count = policy.keep_last().is_some_and(|n| kept >= n);
+        let over_count = policy.keep_last().is_some_and(|n| kept.len() as u32 >= n);
         // The byte cap never evicts the newest kept episode on its own:
         // one oversized file must not leave the feed empty (or churn
         // through download-then-prune every poll).
-        let over_bytes = kept > 0
+        let over_bytes = !kept.is_empty()
             && policy
                 .max_bytes()
                 .is_some_and(|max| kept_bytes + candidate.bytes > max);
         if over_count || over_bytes {
             doomed.push(candidate.id.clone());
         } else {
-            kept += 1;
             kept_bytes += candidate.bytes;
+            kept.push(candidate.id.clone());
         }
     }
     doomed.reverse();
-    doomed
+    (kept, doomed)
+}
+
+/// Given the cached episodes of one show, **newest first** (the storage
+/// ordering), return the ids to prune, oldest-first.
+pub fn plan(policy: &Retention, newest_first: &[Candidate]) -> Vec<EpisodeId> {
+    split(policy, newest_first).1
 }
 
 #[cfg(test)]
@@ -97,6 +109,18 @@ mod tests {
         let cached = candidates(&[(162, 100_000_000), (161, 100_000_000), (160, 100_000_000)]);
         let both = policy("keep_last = 3\nmax_gb = 0.15");
         assert_eq!(ids(&plan(&both, &cached)), ["160", "161"]);
+    }
+
+    #[test]
+    fn split_partitions_completely_and_in_order() {
+        let cached = candidates(&[(162, 100), (161, 100), (160, 100)]);
+        let (kept, doomed) = split(&policy("keep_last = 2"), &cached);
+        assert_eq!(
+            kept.iter().map(|id| id.as_str()).collect::<Vec<_>>(),
+            ["162", "161"],
+            "kept stays newest-first"
+        );
+        assert_eq!(ids(&doomed), ["160"]);
     }
 
     #[test]

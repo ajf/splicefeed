@@ -245,12 +245,14 @@ impl FromStr for ErrorClass {
 }
 
 /// Lifecycle of an episode: `Discovered → Downloading → Cached → Pruned`,
-/// with `Failed` as a retryable detour out of `Downloading`, and
+/// with `Failed` as a retryable detour out of `Downloading`,
 /// `Cached → Downloading` for re-downloading a file that failed
-/// verification (`splicefeed verify --fix`).
+/// verification (`splicefeed verify --fix`), and `Pruned → Downloading`
+/// for reviving a tombstone that fits a widened retention window.
 ///
 /// Pruned rows stay in storage so a pruned episode is never re-discovered
-/// as "new".
+/// as "new" — discovery leaves tombstones alone; only the sync engine's
+/// retention planner revives them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EpisodeState {
@@ -276,6 +278,9 @@ impl EpisodeState {
             // Downloading out of Cached = re-fetch after a failed
             // file verification.
             (Self::Cached, Self::Downloading | Self::Pruned) => true,
+            // Downloading out of Pruned = revival: the retention window
+            // widened and the tombstone fits it again.
+            (Self::Pruned, Self::Downloading) => true,
             (
                 Self::Discovered
                 | Self::Downloading
@@ -533,7 +538,8 @@ mod tests {
         assert!(Failed(ErrorClass::Disk).can_transition_to(Downloading));
         assert!(Cached.can_transition_to(Pruned));
         assert!(Cached.can_transition_to(Downloading)); // verify --fix
-        assert!(!Pruned.can_transition_to(Downloading));
+        assert!(Pruned.can_transition_to(Downloading)); // retention revival
+        assert!(!Pruned.can_transition_to(Cached));
         assert!(!Discovered.can_transition_to(Cached));
     }
 }

@@ -174,8 +174,13 @@ impl Library {
         Ok(self.storage.episodes(slug).await?)
     }
 
-    /// Poll one show: discover new episodes, download them (bounded
-    /// concurrency, one failure never aborts the rest), apply retention.
+    /// Poll one show: discover new episodes, download the ones retention
+    /// will keep (bounded concurrency, one failure never aborts the
+    /// rest), apply retention.
+    ///
+    /// Retention is planned before downloading, so an episode that would
+    /// be pruned immediately is never fetched — and a pruned tombstone
+    /// that fits a widened retention window is revived and re-downloaded.
     ///
     /// Individual episode failures are recorded as
     /// [`EpisodeState::Failed`] and retried on the next sync; only a
@@ -203,20 +208,46 @@ impl Library {
         self.storage.upsert_show(&meta, show.provider()).await?;
         let discovered = self.storage.discover(slug, &episodes).await?;
 
+        // Plan retention over the listing *before* downloading: an
+        // episode the policy would prune right back out is never fetched
+        // (keep_last = 1 against a 25-episode listing downloads one
+        // file, not 25), and a tombstone that fits a widened retention
+        // window is revived and re-downloaded. Projected sizes use
+        // recorded bytes where known — tombstones keep theirs — and 0
+        // for the never-downloaded, so an optimistic fetch under max_gb
+        // is corrected (and remembered) after one cycle at most.
+        //
         // Only episodes in the current (possibly fetch_last-bounded)
-        // listing are downloaded or retried: older Discovered/Failed rows
-        // stay put instead of being fetched outside the window — and a
-        // Failed episode that upstream dropped can't retry forever.
-        let listed: std::collections::HashSet<&EpisodeId> =
-            episodes.iter().map(|ep| &ep.id).collect();
-        let pending: Vec<EpisodeRecord> = self
-            .storage
-            .episodes(slug)
-            .await?
+        // listing are considered at all: rows outside it stay put, and a
+        // Failed episode upstream dropped can't retry forever.
+        let policy = show.retention(self.config.retention());
+        let records = self.storage.episodes(slug).await?;
+        let by_id: std::collections::HashMap<&EpisodeId, &EpisodeRecord> =
+            records.iter().map(|record| (&record.id, record)).collect();
+        let candidates: Vec<retention::Candidate> = episodes
+            .iter()
+            .map(|ep| retention::Candidate {
+                id: ep.id.clone(),
+                bytes: by_id
+                    .get(&ep.id)
+                    .and_then(|record| record.bytes)
+                    .unwrap_or(0),
+            })
+            .collect();
+        let want: std::collections::HashSet<EpisodeId> = retention::split(&policy, &candidates)
+            .0
             .into_iter()
-            .filter(|ep| {
-                listed.contains(&ep.id)
-                    && matches!(ep.state, EpisodeState::Discovered | EpisodeState::Failed(_))
+            .collect();
+
+        let pending: Vec<&EpisodeRecord> = episodes
+            .iter()
+            .filter(|ep| want.contains(&ep.id))
+            .filter_map(|ep| by_id.get(&ep.id).copied())
+            .filter(|record| {
+                matches!(
+                    record.state,
+                    EpisodeState::Discovered | EpisodeState::Failed(_) | EpisodeState::Pruned
+                )
             })
             .collect();
         let downloaded = futures_util::stream::iter(
@@ -228,7 +259,6 @@ impl Library {
         .fold(0_u32, |done, ok| async move { done + u32::from(ok) })
         .await;
 
-        let policy = show.retention(self.config.retention());
         let pruned = self.apply_retention(slug, &policy).await?;
 
         self.storage.record_poll(slug, None).await?;

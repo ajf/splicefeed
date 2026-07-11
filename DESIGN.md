@@ -179,8 +179,13 @@ only unique within a show.) GUIDs derive from `provider_episode_id` —
 never file paths. Retention
 (keep-last-N and/or max-GB, global default + per-show override) prunes files
 and flips state to `Pruned`; pruned rows are kept so episodes don't reappear
-as "new". The byte cap never evicts the newest cached episode on its own —
-one oversized file must not leave a feed empty or churn through
+as "new" — discovery never resurrects a tombstone. Widening retention does:
+the sync engine plans retention over the listing *before* downloading
+(projected sizes: recorded bytes where known, tombstones keep theirs), so
+an episode that would be pruned right back out is never fetched, and a
+tombstone that fits the widened window is revived (`Pruned → Downloading`)
+and re-downloaded. The byte cap never evicts the newest cached episode on
+its own — one oversized file must not leave a feed empty or churn through
 download-then-prune every poll.
 
 ## Downloader
@@ -190,8 +195,10 @@ download-then-prune every poll.
   is passed upstream as `per_page`, so a small window is also a small
   request — and only episodes present in the current listing are
   downloaded or retried. Old rows stay put, and an episode upstream
-  dropped can't retry forever. Distinct from retention: `fetch_last`
-  bounds what comes in, `keep_last`/`max_gb` bound what stays.
+  dropped can't retry forever. Within the listing, only episodes the
+  retention policy will keep are fetched at all (see Storage). Distinct
+  from retention: `fetch_last` bounds what comes in, `keep_last`/`max_gb`
+  bound what stays.
 - Polls per-show on its interval **with jitter**, conditional requests
   (`If-Modified-Since`/`ETag`) where upstream supports them, and a global
   polite rate limit — this is someone else's infrastructure.

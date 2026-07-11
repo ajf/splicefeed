@@ -103,9 +103,6 @@ async fn open_library_with(
         data_dir = "{data}"
         {extra_toml}
 
-        [retention]
-        keep_last = 1
-
         [auth.difm]
         api_key = "member-key"
         base_url = "{base}/"
@@ -121,28 +118,28 @@ async fn open_library_with(
 }
 
 #[tokio::test]
-async fn sync_discovers_downloads_and_prunes() {
+async fn sync_downloads_only_what_retention_keeps() {
     let server = MockServer::start().await;
     mount_api(&server).await;
     let dir = tempfile::tempdir().expect("tempdir");
-    let library = open_library(&server, dir.path()).await;
+    let library = open_library_with(&server, dir.path(), "[retention]\nkeep_last = 1").await;
     let slug: ShowSlug = "test-show".parse().expect("valid slug");
 
     let report = library.sync(&slug).await.expect("sync succeeds");
     assert_eq!(report.discovered, 2);
-    assert_eq!(report.downloaded, 2);
-    // keep_last = 1: the older episode is pruned in the same pass.
-    assert_eq!(report.pruned, 1);
+    // keep_last = 1: retention is planned before downloading, so the
+    // older episode is never fetched — not downloaded-then-pruned.
+    assert_eq!(report.downloaded, 1);
+    assert_eq!(report.pruned, 0);
 
     let media = dir.path().join("media").join("test-show");
     assert_eq!(
         std::fs::read(media.join("162.m4a")).expect("newest episode on disk"),
         AUDIO_NEW
     );
-    assert!(!media.join("161.m4a").exists(), "pruned file is deleted");
+    assert!(!media.join("161.m4a").exists(), "older is never fetched");
 
-    // Second sync: nothing new, and the pruned tombstone is not
-    // re-downloaded or re-pruned.
+    // Second sync: nothing new, nothing re-fetched.
     let report = library.sync(&slug).await.expect("second sync succeeds");
     assert_eq!(report.discovered, 0);
     assert_eq!(report.downloaded, 0);
@@ -152,11 +149,50 @@ async fn sync_discovers_downloads_and_prunes() {
 }
 
 #[tokio::test]
+async fn widened_retention_revives_pruned_episodes() {
+    let server = MockServer::start().await;
+    mount_api(&server).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let slug: ShowSlug = "test-show".parse().expect("valid slug");
+    let media = dir.path().join("media").join("test-show");
+
+    // Cache both episodes.
+    let library = open_library_with(&server, dir.path(), "[retention]\nkeep_last = 2").await;
+    let report = library.sync(&slug).await.expect("sync succeeds");
+    assert_eq!(report.downloaded, 2);
+    drop(library);
+
+    // Tighten retention: the older episode is pruned to a tombstone.
+    let library = open_library_with(&server, dir.path(), "[retention]\nkeep_last = 1").await;
+    let report = library.sync(&slug).await.expect("sync succeeds");
+    assert_eq!(report.downloaded, 0);
+    assert_eq!(report.pruned, 1);
+    assert!(!media.join("161.m4a").exists(), "pruned file deleted");
+    drop(library);
+
+    // Widen it again: the tombstone fits the window and is revived.
+    let library = open_library_with(&server, dir.path(), "[retention]\nkeep_last = 2").await;
+    let report = library.sync(&slug).await.expect("sync succeeds");
+    assert_eq!(report.discovered, 0, "revival is not re-discovery");
+    assert_eq!(report.downloaded, 1, "tombstone re-downloaded");
+    assert_eq!(report.pruned, 0);
+    assert_eq!(
+        std::fs::read(media.join("161.m4a")).expect("revived file on disk"),
+        AUDIO_OLD
+    );
+}
+
+#[tokio::test]
 async fn fetch_last_bounds_discovery_and_download() {
     let server = MockServer::start().await;
     mount_api(&server).await;
     let dir = tempfile::tempdir().expect("tempdir");
-    let library = open_library_with(&server, dir.path(), "fetch_last = 1").await;
+    let library = open_library_with(
+        &server,
+        dir.path(),
+        "fetch_last = 1\n[retention]\nkeep_last = 1",
+    )
+    .await;
     let slug: ShowSlug = "test-show".parse().expect("valid slug");
 
     let report = library.sync(&slug).await.expect("sync succeeds");
@@ -176,7 +212,12 @@ async fn verify_detects_and_fixes_damage() {
     let server = MockServer::start().await;
     mount_api(&server).await;
     let dir = tempfile::tempdir().expect("tempdir");
-    let library = open_library_with(&server, dir.path(), "fetch_last = 1").await;
+    let library = open_library_with(
+        &server,
+        dir.path(),
+        "fetch_last = 1\n[retention]\nkeep_last = 1",
+    )
+    .await;
     let slug: ShowSlug = "test-show".parse().expect("valid slug");
     library.sync(&slug).await.expect("sync succeeds");
     let media = dir.path().join("media").join("test-show").join("162.m4a");
