@@ -18,6 +18,9 @@ pub struct StatusReport {
     pub total_bytes: u64,
     /// Configured maximum concurrent downloads.
     pub download_concurrency: usize,
+    /// The config file settings were read from (`None` if built in
+    /// memory).
+    pub config_source: Option<std::path::PathBuf>,
     /// The SQLite database file.
     pub state_db: std::path::PathBuf,
     /// The data directory.
@@ -97,6 +100,10 @@ pub async fn status_report(library: &Library) -> Result<StatusReport, LibraryErr
             .count(),
         total_bytes: show_reports.iter().map(|show| show.cached_bytes).sum(),
         download_concurrency: library.config().download_concurrency().get(),
+        config_source: library
+            .config()
+            .source_path()
+            .map(std::path::Path::to_owned),
         state_db: library.config().data_dir().join("splicefeed.db"),
         data_dir: library.config().data_dir().to_owned(),
         shows: show_reports,

@@ -586,6 +586,7 @@ mod tests {
             total_files: 1,
             total_bytes: 288_111_664,
             download_concurrency: 2,
+            config_source: Some("/data/config.toml".into()),
             state_db: "/data/splicefeed.db".into(),
             data_dir: "/data".into(),
         }
@@ -661,6 +662,7 @@ mod tests {
                 total_files: 0,
                 total_bytes: 0,
                 download_concurrency: 2,
+                config_source: Some("/data/config.toml".into()),
                 state_db: "/data/splicefeed.db".into(),
                 data_dir: "/data".into(),
             },

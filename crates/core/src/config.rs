@@ -81,6 +81,11 @@ pub struct Config {
     auth: Auth,
     #[serde(default)]
     shows: Vec<ShowConfig>,
+    /// The file this config was loaded from, if any. Not a TOML key —
+    /// [`Config::load`] records it so the daemon can report where it read
+    /// settings from.
+    #[serde(skip)]
+    source: Option<PathBuf>,
 }
 
 impl Config {
@@ -100,7 +105,9 @@ impl Config {
         if !path.is_file() {
             return Err(ConfigError::NotFound(path));
         }
-        Self::from_figment(Figment::new().merge(Toml::file(&path)))
+        let mut config = Self::from_figment(Figment::new().merge(Toml::file(&path)))?;
+        config.source = Some(path);
+        Ok(config)
     }
 
     /// Parse configuration from a TOML string — for embedders whose
@@ -180,6 +187,12 @@ impl Config {
         self.data_dir
             .as_deref()
             .unwrap_or_else(|| unreachable!("data_dir is resolved during load()"))
+    }
+
+    /// The config file this was loaded from, if any (`None` when built
+    /// in memory via [`Config::from_toml_str`]).
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source.as_deref()
     }
 
     /// Default poll interval for shows without an override.

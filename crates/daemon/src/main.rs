@@ -245,6 +245,15 @@ fn print_text(report: &report::StatusReport) {
     );
     println!(
         "{} {}",
+        "config  ".dimmed(),
+        report
+            .config_source
+            .as_deref()
+            .map_or_else(|| "<in-memory>".into(), |p| p.display().to_string())
+            .dimmed()
+    );
+    println!(
+        "{} {}",
         "state db".dimmed(),
         report.state_db.display().to_string().dimmed()
     );
@@ -596,11 +605,20 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
     let library = Library::open(config).await?;
 
     let config = library.config();
+    // Say plainly where settings and state come from — the first thing
+    // to check when the daemon isn't behaving as the config on screen
+    // suggests.
+    tracing::info!(
+        config = config
+            .source_path()
+            .map_or_else(|| "<in-memory>".into(), |p| p.display().to_string()),
+        data_dir = %config.data_dir().display(),
+        "reading config and data from"
+    );
     tracing::info!(
         shows = config.shows().len(),
         bind = %config.bind(),
         external_base_url = %config.external_base_url(),
-        data_dir = %config.data_dir().display(),
         ?mode,
         "configuration loaded and validated"
     );
