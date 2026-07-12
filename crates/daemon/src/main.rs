@@ -454,8 +454,12 @@ async fn probe(config_path: Option<&std::path::Path>, slug: &str) -> anyhow::Res
 
     // The probe always looks at the provider's full natural window —
     // it diagnoses upstream, not the fetch_last config.
-    let episodes = match provider.episodes(&slug, None).await {
-        Ok(episodes) => {
+    let episodes = match provider.episodes(&slug, None, None).await {
+        Ok(splicefeed::EpisodeListing::NotModified) => {
+            println!("episodes:  unexpected 304 without a validator");
+            Vec::new()
+        }
+        Ok(splicefeed::EpisodeListing::Modified { episodes, .. }) => {
             println!(
                 "episodes:  OK  {} parsed (drifted entries, if any, are quarantined and warned above)",
                 episodes.len()

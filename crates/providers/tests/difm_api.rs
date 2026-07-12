@@ -4,7 +4,7 @@
 
 use splicefeed_core::domain::{ApiKey, AudioMime, ListenKey, ShowSlug};
 use splicefeed_providers::difm::DifmProvider;
-use splicefeed_providers::{Provider, ProviderError};
+use splicefeed_providers::{EpisodeListing, Provider, ProviderError};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -27,6 +27,14 @@ fn provider_for(server: &MockServer, quarantine: &std::path::Path) -> DifmProvid
 
 fn slug(s: &str) -> ShowSlug {
     s.parse().expect("valid slug")
+}
+
+/// Unwrap a listing that must be a full body.
+fn modified(listing: EpisodeListing) -> Vec<splicefeed_core::domain::EpisodeMeta> {
+    match listing {
+        EpisodeListing::Modified { episodes, .. } => episodes,
+        EpisodeListing::NotModified => panic!("expected a full listing, got 304"),
+    }
 }
 
 #[tokio::test]
@@ -77,10 +85,12 @@ async fn episode_listing_parses_newest_first() {
         .await;
 
     let provider = provider_for(&server, &tmp);
-    let episodes = provider
-        .episodes(&slug("melodik-revolution"), None)
-        .await
-        .expect("parses");
+    let episodes = modified(
+        provider
+            .episodes(&slug("melodik-revolution"), None, None)
+            .await
+            .expect("parses"),
+    );
 
     assert_eq!(episodes.len(), 2);
     let first = &episodes[0];
@@ -110,16 +120,62 @@ async fn episode_limit_shrinks_the_request_and_the_result() {
         .await;
 
     let provider = provider_for(&server, &tmp);
-    let episodes = provider
-        .episodes(
-            &slug("melodik-revolution"),
-            Some(std::num::NonZeroU32::new(1).expect("nonzero")),
-        )
-        .await
-        .expect("parses");
+    let episodes = modified(
+        provider
+            .episodes(
+                &slug("melodik-revolution"),
+                Some(std::num::NonZeroU32::new(1).expect("nonzero")),
+                None,
+            )
+            .await
+            .expect("parses"),
+    );
 
     assert_eq!(episodes.len(), 1, "truncated to the limit");
     assert_eq!(episodes[0].id.as_str(), "162", "newest survives");
+    cleanup(tmp);
+}
+
+#[tokio::test]
+async fn conditional_listing_roundtrips_the_etag() {
+    let server = MockServer::start().await;
+    let tmp = tempdir();
+    // First fetch: full body with a weak validator (upstream's shape).
+    Mock::given(method("GET"))
+        .and(path("/shows/melodik-revolution/episodes"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "W/\"abc123\"")
+                .set_body_string(fixture("episodes_page1.json")),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    // Second fetch: only answers 304 when our validator comes back.
+    Mock::given(method("GET"))
+        .and(path("/shows/melodik-revolution/episodes"))
+        .and(wiremock::matchers::header("if-none-match", "W/\"abc123\""))
+        .respond_with(ResponseTemplate::new(304))
+        .mount(&server)
+        .await;
+
+    let provider = provider_for(&server, &tmp);
+    let EpisodeListing::Modified { episodes, etag } = provider
+        .episodes(&slug("melodik-revolution"), None, None)
+        .await
+        .expect("first listing")
+    else {
+        panic!("first fetch must carry a body");
+    };
+    assert_eq!(episodes.len(), 2);
+    let etag = etag.expect("validator captured");
+    assert_eq!(etag, "W/\"abc123\"");
+
+    let second = provider
+        .episodes(&slug("melodik-revolution"), None, Some(&etag))
+        .await
+        .expect("conditional listing");
+    assert!(matches!(second, EpisodeListing::NotModified));
     cleanup(tmp);
 }
 
@@ -140,10 +196,12 @@ async fn one_drifted_entry_is_quarantined_not_fatal() {
         .await;
 
     let provider = provider_for(&server, &tmp);
-    let episodes = provider
-        .episodes(&slug("melodik-revolution"), None)
-        .await
-        .expect("not fatal");
+    let episodes = modified(
+        provider
+            .episodes(&slug("melodik-revolution"), None, None)
+            .await
+            .expect("not fatal"),
+    );
 
     assert_eq!(episodes.len(), 1, "good entry survives");
     assert_eq!(episodes[0].id.as_str(), "162");

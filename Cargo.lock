@@ -2664,6 +2664,7 @@ dependencies = [
  "axum",
  "clap",
  "colored",
+ "fastrand",
  "feed-rs",
  "futures-util",
  "humansize",

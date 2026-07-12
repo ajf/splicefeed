@@ -37,7 +37,7 @@ pub use splicefeed_core::domain::{
 pub use splicefeed_core::download::DownloadError;
 pub use splicefeed_core::ipc;
 pub use splicefeed_core::storage::{EpisodeRecord, ShowRecord, StorageError};
-pub use splicefeed_providers::{Provider, ProviderError, ProviderRegistry};
+pub use splicefeed_providers::{EpisodeListing, Provider, ProviderError, ProviderRegistry};
 
 /// Errors surfaced by [`Library`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -224,7 +224,12 @@ impl Library {
 
         let listing = async {
             let meta = provider.show(slug).await?;
-            let episodes = provider.episodes(slug, limit).await?;
+            // Conditional polls (stored ETag) land with the scheduler;
+            // until then every listing is unconditional.
+            let episodes = match provider.episodes(slug, limit, None).await? {
+                EpisodeListing::Modified { episodes, .. } => episodes,
+                EpisodeListing::NotModified => Vec::new(),
+            };
             Ok::<_, ProviderError>((meta, episodes))
         }
         .await;

@@ -46,7 +46,7 @@ use splicefeed_core::domain::{
 use url::Url;
 
 use crate::quarantine::Quarantine;
-use crate::{Provider, ProviderError, ProviderFactory, redacted};
+use crate::{EpisodeListing, Provider, ProviderError, ProviderFactory, redacted};
 
 /// Production API base for the DI.FM network.
 pub const DEFAULT_BASE_URL: &str = "https://api.audioaddict.com/v1/di/";
@@ -131,6 +131,19 @@ impl DifmProviderBuilder {
     }
 }
 
+/// Outcome of one HTTP fetch against the API.
+enum Fetched {
+    /// 304: the validator still holds.
+    NotModified,
+    /// A body, plus the validator for next time (when sent).
+    Body {
+        /// Response text.
+        text: String,
+        /// `ETag` header value.
+        etag: Option<String>,
+    },
+}
+
 impl DifmProvider {
     /// Start building a provider from the member API key — the one
     /// credential the API actually requires.
@@ -156,28 +169,51 @@ impl DifmProvider {
         Ok(url)
     }
 
-    /// Fetch a URL, mapping transport and status failures. Never lets the
-    /// listen key into an error message.
-    async fn get_text(&self, url: Url) -> Result<String, ProviderError> {
+    /// Fetch a URL, mapping transport and status failures. Never lets
+    /// credentials into an error message. With `if_none_match`, a 304
+    /// comes back as [`Fetched::NotModified`].
+    async fn get(&self, url: Url, if_none_match: Option<&str>) -> Result<Fetched, ProviderError> {
         let shown = redacted(&url);
-        tracing::debug!(url = %shown, "difm: GET");
-        let response = self
-            .http
-            .get(url)
+        tracing::debug!(url = %shown, conditional = if_none_match.is_some(), "difm: GET");
+        let mut request = self.http.get(url);
+        if let Some(etag) = if_none_match {
+            request = request.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| ProviderError::Http(e.without_url().to_string()))?;
         let status = response.status();
+        if status == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(Fetched::NotModified);
+        }
         if !status.is_success() {
             return Err(ProviderError::Status {
                 status: status.as_u16(),
                 url: shown,
             });
         }
-        response
+        let etag = response
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let text = response
             .text()
             .await
-            .map_err(|e| ProviderError::Http(e.without_url().to_string()))
+            .map_err(|e| ProviderError::Http(e.without_url().to_string()))?;
+        Ok(Fetched::Body { text, etag })
+    }
+
+    /// Fetch a URL unconditionally, expecting a body.
+    async fn get_text(&self, url: Url) -> Result<String, ProviderError> {
+        match self.get(url, None).await? {
+            Fetched::Body { text, .. } => Ok(text),
+            // Unreachable without If-None-Match; treat defensively.
+            Fetched::NotModified => Err(ProviderError::Http(
+                "unexpected 304 to an unconditional request".into(),
+            )),
+        }
     }
 
     /// Parse a payload, quarantining it on failure.
@@ -216,7 +252,8 @@ impl Provider for DifmProvider {
         &self,
         slug: &ShowSlug,
         limit: Option<std::num::NonZeroU32>,
-    ) -> Result<Vec<EpisodeMeta>, ProviderError> {
+        etag: Option<&str>,
+    ) -> Result<EpisodeListing, ProviderError> {
         let per_page = limit
             .map_or(self.per_page, std::num::NonZeroU32::get)
             .to_string();
@@ -224,10 +261,14 @@ impl Provider for DifmProvider {
             &["shows", slug.as_str(), "episodes"],
             &[("page", "1"), ("per_page", per_page.as_str())],
         )?;
-        let payload = self
-            .get_text(url)
+        let (payload, etag) = match self
+            .get(url, etag)
             .await
-            .map_err(|e| Self::not_found_means_no_show(e, slug))?;
+            .map_err(|e| Self::not_found_means_no_show(e, slug))?
+        {
+            Fetched::NotModified => return Ok(EpisodeListing::NotModified),
+            Fetched::Body { text, etag } => (text, etag),
+        };
 
         // Parse the array shell first, then each entry on its own, so one
         // drifted episode quarantines that entry instead of the whole poll.
@@ -255,7 +296,7 @@ impl Provider for DifmProvider {
         if let Some(limit) = limit {
             episodes.truncate(limit.get() as usize);
         }
-        Ok(episodes)
+        Ok(EpisodeListing::Modified { episodes, etag })
     }
 
     async fn resolve_audio(

@@ -87,13 +87,19 @@ pub trait Provider: Send + Sync {
     /// window); providers pass it upstream where the API allows, so a
     /// small limit also means a small request.
     ///
+    /// `etag` is the validator returned by a previous listing; providers
+    /// that support conditional requests send it upstream and answer
+    /// [`EpisodeListing::NotModified`] on a 304 — a poll of an unchanged
+    /// show costs one header exchange.
+    ///
     /// Individually unparseable entries are quarantined and skipped, never
     /// fatal — a partial listing beats no listing.
     async fn episodes(
         &self,
         slug: &ShowSlug,
         limit: Option<std::num::NonZeroU32>,
-    ) -> Result<Vec<EpisodeMeta>, ProviderError>;
+        etag: Option<&str>,
+    ) -> Result<EpisodeListing, ProviderError>;
 
     /// Resolve the downloadable audio URL for one episode of a show
     /// (credentials included — sensitive, redact before logging).
@@ -105,6 +111,21 @@ pub trait Provider: Send + Sync {
 
     /// Fetch the show's artwork URL, if it has one.
     async fn artwork(&self, slug: &ShowSlug) -> Result<Option<Url>, ProviderError>;
+}
+
+/// Result of an episode listing that may have been served conditionally.
+#[derive(Debug)]
+pub enum EpisodeListing {
+    /// Upstream confirmed nothing changed since the given validator.
+    NotModified,
+    /// A full listing (the validator to send next time, when upstream
+    /// provides one).
+    Modified {
+        /// Episodes, newest first.
+        episodes: Vec<EpisodeMeta>,
+        /// Validator for the next conditional request.
+        etag: Option<String>,
+    },
 }
 
 /// Builds a [`Provider`] from its section of the daemon [`Config`].
