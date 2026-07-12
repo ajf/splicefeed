@@ -12,7 +12,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
-use splicefeed_daemon::{control, ops, reload, report, scheduler, server};
+use splicefeed_daemon::{control, ops, reload, report, scheduler, server, telemetry};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -533,11 +533,13 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
         Mode::Once => ops::sync_all_once(&library).await,
         Mode::Serve => {
             let socket_path = library.config().control_socket_path();
+            let metrics = telemetry::init(library.config())?;
             let (tx, rx) = tokio::sync::watch::channel(Arc::new(library));
             let vitals = control::Vitals::default();
             // Converge once at startup; the scheduler takes it from there.
             tokio::spawn(initial_sync(tx.borrow().clone()));
             tokio::spawn(scheduler::run(rx.clone()));
+            tokio::spawn(telemetry::pump_events(rx.clone(), metrics.clone()));
             tokio::spawn(control_serve(
                 socket_path.clone(),
                 rx.clone(),
@@ -548,7 +550,7 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
                 tx,
                 config_path.map(std::path::Path::to_path_buf),
             ));
-            let served = server::serve(rx, vitals, shutdown_signal()).await;
+            let served = server::serve(rx, vitals, metrics, shutdown_signal()).await;
             // The control task can't see process exit; tidy its socket
             // here (startup tolerates a stale file regardless).
             std::fs::remove_file(&socket_path).ok();

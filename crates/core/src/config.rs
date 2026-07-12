@@ -74,6 +74,8 @@ pub struct Config {
     #[serde(default)]
     control_socket: Option<PathBuf>,
     #[serde(default)]
+    telemetry: TelemetryConfig,
+    #[serde(default)]
     retention: Retention,
     #[serde(default)]
     auth: Auth,
@@ -233,11 +235,59 @@ impl Config {
         self.auth.difm.as_ref()?.api_key.as_ref()
     }
 
+    /// Telemetry export settings (disabled by default).
+    pub fn telemetry(&self) -> &TelemetryConfig {
+        &self.telemetry
+    }
+
     /// Override for the AudioAddict API base URL — for sibling networks
     /// (RadioTunes, JazzRadio, …) or tests. `None` means the DI.FM
     /// production API.
     pub fn difm_base_url(&self) -> Option<&Url> {
         self.auth.difm.as_ref()?.base_url.as_ref()
+    }
+}
+
+/// Telemetry: disabled by default — nothing leaves the box unless the
+/// operator configures an exporter. The Prometheus `/metrics` route is
+/// always served (it only answers scrapes, it never pushes).
+#[derive(Debug, Default, Deserialize)]
+pub struct TelemetryConfig {
+    #[serde(default)]
+    otlp: Option<OtlpConfig>,
+}
+
+impl TelemetryConfig {
+    /// OTLP push export, when configured.
+    pub fn otlp(&self) -> Option<&OtlpConfig> {
+        self.otlp.as_ref()
+    }
+}
+
+/// Where and how often to push OTLP metrics.
+#[derive(Debug, Deserialize)]
+pub struct OtlpConfig {
+    endpoint: Url,
+    #[serde(default = "defaults::otlp_interval", with = "humantime_serde")]
+    interval: Duration,
+    #[serde(default)]
+    headers: std::collections::HashMap<String, String>,
+}
+
+impl OtlpConfig {
+    /// The collector endpoint (OTLP/HTTP).
+    pub fn endpoint(&self) -> &Url {
+        &self.endpoint
+    }
+
+    /// Export interval (default 60s).
+    pub fn interval(&self) -> Duration {
+        self.interval
+    }
+
+    /// Extra headers (e.g. authorization) sent with every export.
+    pub fn headers(&self) -> &std::collections::HashMap<String, String> {
+        &self.headers
     }
 }
 
@@ -401,6 +451,10 @@ mod defaults {
 
     pub(super) fn download_concurrency() -> std::num::NonZeroUsize {
         std::num::NonZeroUsize::new(2).unwrap_or_else(|| unreachable!("2 is nonzero"))
+    }
+
+    pub(super) fn otlp_interval() -> Duration {
+        Duration::from_secs(60)
     }
 }
 

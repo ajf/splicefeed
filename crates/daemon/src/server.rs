@@ -26,13 +26,31 @@ pub type LibraryHandle = watch::Receiver<Arc<Library>>;
 /// All routes over the current library. The `/media` and `/artwork`
 /// roots are captured from the initial config — `data_dir` is a
 /// restart-only setting, enforced by the reload guard. Every request
-/// bumps `vitals` for the control socket's snapshot.
-pub fn router(library: LibraryHandle, vitals: crate::control::Vitals) -> Router {
+/// bumps `vitals` for the control socket's snapshot and lands in the
+/// `http.server.request.duration` histogram.
+pub fn router(
+    library: LibraryHandle,
+    vitals: crate::control::Vitals,
+    metrics: crate::telemetry::Metrics,
+) -> Router {
     let data_dir = library.borrow().config().data_dir().to_owned();
+    let scraped = metrics.clone();
     Router::new()
         .route("/feeds/{feed}", get(feed))
         .route("/healthz", get(healthz))
         .route("/debug", get(debug))
+        .route(
+            "/metrics",
+            get(move || {
+                let metrics = scraped.clone();
+                async move {
+                    (
+                        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                        metrics.scrape(),
+                    )
+                }
+            }),
+        )
         // ServeDir brings range requests (podcast apps scrub), sane
         // Content-Type from extensions, and path sanitization.
         .nest_service("/media", ServeDir::new(data_dir.join("media")))
@@ -42,7 +60,23 @@ pub fn router(library: LibraryHandle, vitals: crate::control::Vitals) -> Router 
                 vitals
                     .http_requests
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                next.run(request)
+                let method = request.method().as_str().to_owned();
+                let metrics = metrics.clone();
+                let started = std::time::Instant::now();
+                async move {
+                    let response = next.run(request).await;
+                    metrics.http_request_duration.record(
+                        started.elapsed().as_secs_f64(),
+                        &[
+                            opentelemetry::KeyValue::new("http.request.method", method),
+                            opentelemetry::KeyValue::new(
+                                "http.response.status_code",
+                                i64::from(response.status().as_u16()),
+                            ),
+                        ],
+                    );
+                    response
+                }
             },
         ))
         .with_state(library)
@@ -52,6 +86,7 @@ pub fn router(library: LibraryHandle, vitals: crate::control::Vitals) -> Router 
 pub async fn serve(
     library: LibraryHandle,
     vitals: crate::control::Vitals,
+    metrics: crate::telemetry::Metrics,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     let (bind, external) = {
@@ -63,7 +98,7 @@ pub async fn serve(
     };
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, %external, "HTTP server listening");
-    axum::serve(listener, router(library, vitals))
+    axum::serve(listener, router(library, vitals, metrics))
         .with_graceful_shutdown(shutdown)
         .await?;
     Ok(())

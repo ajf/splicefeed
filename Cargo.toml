@@ -35,6 +35,13 @@ tower-http = { version = "0.7", features = ["fs"] }
 feed-rs = "2"
 ratatui = "0.30"
 fastrand = "2"
+# Telemetry: API/SDK/bridges pinned to one minor — the prometheus bridge
+# historically lagged the SDK (DESIGN.md "Decisions"); at 0.32 they align.
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["metrics", "rt-tokio"] }
+opentelemetry-prometheus = "0.32"
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["metrics", "http-proto", "reqwest-client"] }
+prometheus = "0.14"
 etcetera = "0.8"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }

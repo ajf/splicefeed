@@ -358,6 +358,16 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    the database when not. Also shipped earlier under this milestone's
    banner: plain `status`/`--format json`, `verify [SLUG] [--fix]`.)*
 7. **Telemetry** — OTel/OTLP/Prometheus wiring (bridge risk re-checked here).
+   *(done — bridge risk resolved: API/SDK/prometheus-bridge/otlp all
+   align at 0.32, pinned together. One SdkMeterProvider; /metrics via
+   the prometheus reader (always on, pull-only), OTLP/HTTP via
+   PeriodicReader when [telemetry.otlp] is configured. The boundary
+   rule holds: libraries emit domain events, the binary's pump
+   translates them to counters (polls, discovered, downloads by
+   result, pruned episodes/bytes, quarantined — labeled by
+   show/provider) and axum middleware records
+   http.server.request.duration. Traces stay on stderr via tracing;
+   tokio-metrics skipped — needs unstable tokio cfg.)*
 8. **Packaging** — systemd unit, Podman quadlet, launchd plist, musl build,
    README (config reference, deployment, "when DI.FM changes their API").
 

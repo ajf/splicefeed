@@ -26,6 +26,15 @@
 # <data_dir>/splicefeed.sock when no runtime dir exists (macOS).
 #control_socket = "/run/user/1000/splicefeed.sock"
 
+# Telemetry is off by default: nothing leaves the box. The Prometheus
+# /metrics route is always served (pull-only). Configure OTLP to push
+# metrics to a collector:
+#[telemetry.otlp]
+#endpoint = "http://collector.lan:4318/v1/metrics"
+#interval = "60s"
+#[telemetry.otlp.headers]
+#authorization = "Bearer ..."
+
 # Only look at each show's newest N episodes when syncing (discovery AND
 # download/retry). Unset = the provider's natural listing window (25 for
 # DI.FM). Distinct from retention: fetch_last bounds what comes in,

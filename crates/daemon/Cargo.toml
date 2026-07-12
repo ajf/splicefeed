@@ -26,6 +26,11 @@ axum.workspace = true
 tower-http.workspace = true
 ratatui.workspace = true
 fastrand.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-prometheus.workspace = true
+opentelemetry-otlp.workspace = true
+prometheus.workspace = true
 
 [dev-dependencies]
 reqwest.workspace = true

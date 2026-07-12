@@ -115,9 +115,10 @@ async fn served_library(api: &MockServer) -> (String, tempfile::TempDir) {
         .expect("ephemeral bind");
     let addr = listener.local_addr().expect("bound addr");
     let (_tx, rx) = tokio::sync::watch::channel(library);
+    let metrics = splicefeed_daemon::telemetry::init(rx.borrow().config()).expect("metrics init");
     tokio::spawn(async move {
         let vitals = splicefeed_daemon::control::Vitals::default();
-        axum::serve(listener, server::router(rx, vitals))
+        axum::serve(listener, server::router(rx, vitals, metrics))
             .await
             .expect("server runs");
     });

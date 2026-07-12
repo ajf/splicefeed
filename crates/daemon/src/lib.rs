@@ -10,4 +10,5 @@ pub mod reload;
 pub mod report;
 pub mod scheduler;
 pub mod server;
+pub mod telemetry;
 pub mod tui;
