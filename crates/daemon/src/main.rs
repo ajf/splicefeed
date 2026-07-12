@@ -14,11 +14,31 @@ use splicefeed::{Config, EpisodeState, Library, Mode};
 use splicefeed_daemon::{control, ops, reload, report, scheduler, server, telemetry};
 use tracing_subscriber::EnvFilter;
 
+/// Rendered into the man pages' EXTRA section and `--help`.
+const SIGNALS_HELP: &str = "\
+Signals (while `splicefeed run` is serving):
+
+  SIGHUP        Reload the configuration without dropping the server.
+                Shows are added/removed live (a newly added show syncs
+                immediately), credential and interval changes take
+                effect, and enclosure URLs follow a changed
+                external_base_url on the next feed fetch. `bind`,
+                `data_dir`, and `control_socket` are bound at startup
+                and need a restart. A config that fails to parse or
+                validate is rejected whole — the previous configuration
+                stays live, so a typo can never take the feeds down.
+                Under systemd: `systemctl reload splicefeed`.
+
+  SIGINT, SIGTERM
+                Graceful shutdown: in-flight HTTP responses drain and
+                the control socket is removed.";
+
 #[derive(Parser)]
 #[command(
     name = "splicefeed",
     version,
-    about = "DI.FM-to-podcast-RSS proxy daemon"
+    about = "DI.FM-to-podcast-RSS proxy daemon",
+    after_long_help = SIGNALS_HELP
 )]
 struct Cli {
     /// Path to config.toml (default: ~/.config/splicefeed/config.toml).
@@ -32,6 +52,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Run the daemon: poll shows on schedule and serve feeds over HTTP.
+    #[command(after_long_help = SIGNALS_HELP)]
     Run {
         /// Poll every show once, write feeds, and exit (cron-style).
         #[arg(long)]
@@ -625,11 +646,44 @@ async fn control_serve(
     }
 }
 
+/// Resolve on SIGINT (ctrl-c) or, on unix, SIGTERM — what systemd's
+/// `stop` sends. Both mean graceful shutdown: drain HTTP, remove the
+/// control socket.
 async fn shutdown_signal() {
-    match tokio::signal::ctrl_c().await {
+    let interrupt = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(stream) => stream,
+                Err(err) => {
+                    tracing::error!(error = %err, "failed to install SIGTERM handler");
+                    // Fall back to SIGINT alone rather than not stopping.
+                    match interrupt.await {
+                        Ok(()) => tracing::info!("shutdown signal received"),
+                        Err(err) => {
+                            tracing::error!(error = %err, "failed to install ctrl-c handler");
+                            std::future::pending::<()>().await
+                        }
+                    }
+                    return;
+                }
+            };
+        tokio::select! {
+            result = interrupt => match result {
+                Ok(()) => tracing::info!("SIGINT received: shutting down"),
+                Err(err) => {
+                    tracing::error!(error = %err, "failed to install ctrl-c handler");
+                    std::future::pending::<()>().await
+                }
+            },
+            _ = terminate.recv() => tracing::info!("SIGTERM received: shutting down"),
+        }
+    }
+    #[cfg(not(unix))]
+    match interrupt.await {
         Ok(()) => tracing::info!("shutdown signal received"),
         Err(err) => {
-            // No signal handler means no clean way to stop; serve on.
             tracing::error!(error = %err, "failed to install ctrl-c handler");
             std::future::pending::<()>().await
         }
