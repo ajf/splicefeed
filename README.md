@@ -8,11 +8,24 @@ for. Architecture and decisions: [DESIGN.md](DESIGN.md).
 
 ## Quickstart
 
+Pull the multi-arch image (amd64 + arm64):
+
+```sh
+podman pull ghcr.io/ajf/splicefeed        # or docker
+```
+
+Or build from source:
+
 ```sh
 cargo build --workspace --release
+```
+
+Then configure and run:
+
+```sh
 mkdir -p ~/.config/splicefeed
 cp config.example.toml ~/.config/splicefeed/config.toml   # edit: api_key + shows
-target/release/splicefeed run
+splicefeed run   # or: target/release/splicefeed run
 ```
 
 Subscribe to `http://<external_base_url>/feeds/<slug>.xml`, or import
