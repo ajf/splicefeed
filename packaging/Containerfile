@@ -1,6 +1,9 @@
 # Container image for splicefeed (glibc dynamic build).
 #
-#   podman build -t splicefeed -f packaging/Containerfile .
+# Prebuilt multi-arch images are published by CI:
+#   podman pull ghcr.io/ajf/splicefeed:latest
+# To build it yourself:
+#   podman build -t ghcr.io/ajf/splicefeed -f packaging/Containerfile .
 #
 # Runtime expects a config at /etc/splicefeed/config.toml with
 # data_dir = "/data"; mount both (see splicefeed.container).

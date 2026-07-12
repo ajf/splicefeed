@@ -47,7 +47,8 @@ front with Caddy if you need either.
 ## Deployment
 
 Units in [packaging/](packaging/), install notes in each header: systemd
-(hardened; `reload` = SIGHUP), Podman quadlet + Containerfile, launchd.
+(hardened; `reload` = SIGHUP), Podman quadlet, launchd. Or run the
+CI-published multi-arch container: `podman pull ghcr.io/ajf/splicefeed`.
 Completions and man pages come from the binary:
 `splicefeed completions fish > ~/.config/fish/completions/splicefeed.fish`.
 

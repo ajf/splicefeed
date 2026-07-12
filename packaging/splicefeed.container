@@ -1,7 +1,11 @@
 # Podman quadlet for splicefeed.
 #
+# Uses the published multi-arch image (amd64/arm64) from GitHub CI. To
+# build locally instead, run
+#   podman build -t ghcr.io/ajf/splicefeed -f packaging/Containerfile .
+# and keep the Image= line below.
+#
 # Install (rootless):
-#   podman build -t localhost/splicefeed -f packaging/Containerfile .
 #   mkdir -p ~/.config/containers/systemd ~/.config/splicefeed ~/.local/share/splicefeed
 #   cp config.example.toml ~/.config/splicefeed/config.toml   # edit it:
 #     bind = "0.0.0.0:8380"          # the container must listen beyond loopback
@@ -17,7 +21,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=localhost/splicefeed
+Image=ghcr.io/ajf/splicefeed:latest
+AutoUpdate=registry
 PublishPort=8380:8380
 Volume=%h/.config/splicefeed:/etc/splicefeed:ro,Z
 Volume=%h/.local/share/splicefeed:/data:Z
