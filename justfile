@@ -33,10 +33,6 @@ check-boundary:
 release:
     cargo build --workspace --release
 
-# Static Linux binary (requires: rustup target add x86_64-unknown-linux-musl).
-release-musl:
-    cargo build -p splicefeed-daemon --release --target x86_64-unknown-linux-musl
-
 # Release build for Apple Silicon; run on a macOS host.
 release-macos:
     cargo build -p splicefeed-daemon --release --target aarch64-apple-darwin

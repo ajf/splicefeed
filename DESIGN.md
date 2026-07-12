@@ -42,9 +42,10 @@ tree (`cargo tree -p splicefeed` is checked against a denylist, and the facade
 is built in isolation). The libs *record* telemetry via `tracing` and metrics
 facades; only the binary *exports*.
 
-The binary output is a single self-contained `splicefeed` executable
-(rusqlite `bundled`, rustls — no system libs). Targets: macOS aarch64, Linux
-x86_64/aarch64, plus optional `x86_64-unknown-linux-musl` static build.
+The binary output is a single `splicefeed` executable (rusqlite
+`bundled`, rustls) linking only libc — operator decision 2026-07-12:
+dynamic glibc is fine, the musl static build was dropped. Targets: macOS
+aarch64, Linux x86_64/aarch64.
 
 ## Decisions
 
@@ -368,8 +369,13 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    show/provider) and axum middleware records
    http.server.request.duration. Traces stay on stderr via tracing;
    tokio-metrics skipped — needs unstable tokio cfg.)*
-8. **Packaging** — systemd unit, Podman quadlet, launchd plist, musl build,
+8. **Packaging** — systemd unit, Podman quadlet, launchd plist,
    README (config reference, deployment, "when DI.FM changes their API").
+   *(done — packaging/ holds a hardened systemd unit with
+   ExecReload=SIGHUP, a Containerfile + rootless quadlet, and a launchd
+   agent; the musl static build was dropped by operator decision —
+   plain glibc release builds. README carries the full config
+   reference, deployment walkthroughs, and the API-drift runbook.)*
 
 ## Non-goals
 

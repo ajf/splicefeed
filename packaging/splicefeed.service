@@ -1,0 +1,54 @@
+# splicefeed systemd unit.
+#
+# Install (system-wide, dedicated user):
+#   sudo useradd --system --home /var/lib/splicefeed --create-home splicefeed
+#   sudo cp target/release/splicefeed /usr/local/bin/
+#   sudo mkdir -p /etc/splicefeed && sudo cp config.example.toml /etc/splicefeed/config.toml
+#   sudo cp packaging/splicefeed.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now splicefeed
+#
+# Operate:
+#   systemctl reload splicefeed     # SIGHUP: re-read config, no downtime
+#   journalctl -u splicefeed -f
+#
+# (For a user service instead, drop this in ~/.config/systemd/user/,
+# remove User=/Group=, and use `systemctl --user`.)
+
+[Unit]
+Description=splicefeed: DI.FM premium shows as podcast RSS feeds
+Documentation=https://github.com/andrewforgue/splicefeed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=splicefeed
+Group=splicefeed
+Environment=SPLICEFEED_CONFIG=/etc/splicefeed/config.toml
+# Point data_dir in config.toml at this directory (or leave StateDirectory
+# to provide /var/lib/splicefeed and set data_dir = "/var/lib/splicefeed").
+StateDirectory=splicefeed
+RuntimeDirectory=splicefeed
+ExecStart=/usr/local/bin/splicefeed run
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: the daemon needs the network, its state directory, and its
+# runtime directory (control socket) — nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

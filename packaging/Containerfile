@@ -1,0 +1,24 @@
+# Container image for splicefeed (glibc dynamic build).
+#
+#   podman build -t splicefeed -f packaging/Containerfile .
+#
+# Runtime expects a config at /etc/splicefeed/config.toml with
+# data_dir = "/data"; mount both (see splicefeed.container).
+
+FROM docker.io/library/rust:1-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --workspace --release
+
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 950 --home /data splicefeed
+COPY --from=build /src/target/release/splicefeed /usr/local/bin/splicefeed
+USER splicefeed
+ENV SPLICEFEED_CONFIG=/etc/splicefeed/config.toml
+EXPOSE 8380
+VOLUME /data
+ENTRYPOINT ["/usr/local/bin/splicefeed"]
+CMD ["run"]

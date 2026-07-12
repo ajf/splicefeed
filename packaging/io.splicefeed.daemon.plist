@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for splicefeed (macOS).
+
+  Install:
+    just release            (XML comments forbid the literal cargo flag)
+    cp target/release/splicefeed /usr/local/bin/
+    mkdir -p ~/.config/splicefeed && cp config.example.toml ~/.config/splicefeed/config.toml
+    cp packaging/io.splicefeed.daemon.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.splicefeed.daemon.plist
+
+  Reload config:
+    launchctl kill HUP gui/$(id -u)/io.splicefeed.daemon
+
+  Logs: ~/Library/Logs/splicefeed.log
+  (No XDG_RUNTIME_DIR on macOS: the control socket defaults to
+  <data_dir>/splicefeed.sock.)
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.splicefeed.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/splicefeed</string>
+        <string>run</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>~/Library/Logs/splicefeed.log</string>
+    <key>StandardErrorPath</key>
+    <string>~/Library/Logs/splicefeed.log</string>
+</dict>
+</plist>

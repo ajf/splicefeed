@@ -1,0 +1,31 @@
+# Podman quadlet for splicefeed.
+#
+# Install (rootless):
+#   podman build -t localhost/splicefeed -f packaging/Containerfile .
+#   mkdir -p ~/.config/containers/systemd ~/.config/splicefeed ~/.local/share/splicefeed
+#   cp config.example.toml ~/.config/splicefeed/config.toml   # edit it:
+#     bind = "0.0.0.0:8380"          # the container must listen beyond loopback
+#     data_dir = "/data"
+#   cp packaging/splicefeed.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload && systemctl --user start splicefeed
+#
+# Reload config: systemctl --user kill --signal=HUP splicefeed
+
+[Unit]
+Description=splicefeed: DI.FM premium shows as podcast RSS feeds
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/splicefeed
+PublishPort=8380:8380
+Volume=%h/.config/splicefeed:/etc/splicefeed:ro,Z
+Volume=%h/.local/share/splicefeed:/data:Z
+Notify=false
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
