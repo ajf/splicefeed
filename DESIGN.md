@@ -248,6 +248,8 @@ reusable buffer. Determinism rules:
 ## HTTP server (binary, axum)
 
 - `/feeds/<show>.xml` — generated from storage, deterministic
+- `/subscriptions.opml` — OPML 2.0 list of every servable feed (same
+  determinism rules; also `splicefeed opml` on the CLI)
 - `/media/<show>/<file>` — via `tower-http` `ServeFile`-style streamed
   responses: correct `Content-Type`/`Content-Length` and **range support**
   (podcast apps require it for scrubbing); never read-into-memory

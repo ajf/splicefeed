@@ -11,6 +11,7 @@ pub mod config;
 pub mod domain;
 pub mod download;
 pub mod ipc;
+pub mod opml;
 pub mod retention;
 pub mod rss;
 pub mod storage;

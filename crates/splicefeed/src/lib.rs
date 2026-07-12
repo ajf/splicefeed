@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use futures_util::StreamExt;
 use splicefeed_core::download::{Downloader, blake3_of_file, probe_duration};
 use splicefeed_core::storage::{CachedFile, Storage};
-use splicefeed_core::{retention, rss};
+use splicefeed_core::{opml, retention, rss};
 use url::Url;
 
 pub use splicefeed_core::config::{ArtworkOverride, Config, ConfigError, Retention, ShowConfig};
@@ -633,6 +633,30 @@ impl Library {
             items,
         };
         Ok(rss::write(&feed, out)?)
+    }
+
+    /// Write an OPML 2.0 subscription list covering every show whose
+    /// feed is currently servable — configured *and* synced at least
+    /// once (an entry that would 404 helps nobody). One import
+    /// subscribes a podcast app to everything. Byte-identical across
+    /// calls when the show set hasn't changed.
+    pub async fn write_opml<W: Write>(&self, out: &mut W) -> Result<(), LibraryError> {
+        let base = self.config.external_base_url();
+        let subscriptions: Vec<opml::Subscription> = self
+            .show_records()
+            .await?
+            .into_iter()
+            .filter_map(|record| {
+                let show = self.show_config(&record.slug).ok()?;
+                Some(opml::Subscription {
+                    title: show
+                        .title()
+                        .map_or_else(|| record.title.clone(), str::to_owned),
+                    feed_url: under(&base, &["feeds", &format!("{}.xml", record.slug)])?,
+                })
+            })
+            .collect();
+        Ok(opml::write("splicefeed", &subscriptions, out)?)
     }
 
     fn show_config(&self, slug: &ShowSlug) -> Result<&ShowConfig, LibraryError> {

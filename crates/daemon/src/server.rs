@@ -37,6 +37,7 @@ pub fn router(
     let scraped = metrics.clone();
     Router::new()
         .route("/feeds/{feed}", get(feed))
+        .route("/subscriptions.opml", get(subscriptions))
         .route("/healthz", get(healthz))
         .route("/debug", get(debug))
         .route(
@@ -125,6 +126,20 @@ async fn feed(State(handle): State<LibraryHandle>, Path(name): Path<String>) -> 
         }
         Err(err) => {
             tracing::error!(show = %slug, error = %err, "feed generation failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// `GET /subscriptions.opml` — every servable feed as one importable
+/// subscription list.
+async fn subscriptions(State(handle): State<LibraryHandle>) -> Response {
+    let library = handle.borrow().clone();
+    let mut xml = Vec::new();
+    match library.write_opml(&mut xml).await {
+        Ok(()) => ([(header::CONTENT_TYPE, "text/x-opml; charset=utf-8")], xml).into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "opml generation failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

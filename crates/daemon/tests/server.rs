@@ -126,6 +126,41 @@ async fn served_library(api: &MockServer) -> (String, tempfile::TempDir) {
 }
 
 #[tokio::test]
+async fn opml_lists_every_servable_feed() {
+    let api = MockServer::start().await;
+    mount_api(&api).await;
+    let (base, _dir) = served_library(&api).await;
+
+    let response = reqwest::get(format!("{base}/subscriptions.opml"))
+        .await
+        .expect("request succeeds");
+    assert_eq!(response.status(), 200);
+    assert!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("text/x-opml"))
+    );
+    let body = response.text().await.expect("body");
+    assert!(body.contains(r#"<opml version="2.0">"#));
+    assert!(
+        body.contains(r#"xmlUrl="http://nas.lan:8380/feeds/test-show.xml""#),
+        "feed URL uses the external base: {body}"
+    );
+    assert!(body.contains(r#"title="Test Show""#));
+
+    // Byte-identical across fetches, like the feeds themselves.
+    let again = reqwest::get(format!("{base}/subscriptions.opml"))
+        .await
+        .expect("request succeeds")
+        .text()
+        .await
+        .expect("body");
+    assert_eq!(body, again);
+}
+
+#[tokio::test]
 async fn feed_endpoint_serves_valid_rss_with_external_urls() {
     let api = MockServer::start().await;
     mount_api(&api).await;

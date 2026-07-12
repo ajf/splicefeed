@@ -27,7 +27,9 @@ target/release/splicefeed run          # then serve for real
 ```
 
 Subscribe to `http://<external_base_url>/feeds/<slug>.xml` in your podcast
-app.
+app — or import `http://<external_base_url>/subscriptions.opml` to
+subscribe to every show at once (most apps support OPML; Apple Podcasts
+only imports it on macOS).
 
 ### Credentials
 
@@ -51,6 +53,7 @@ through all of this too.)
 | `status --watch` | Live TUI; with a running daemon: vitals + event stream over the control socket |
 | `verify [SLUG] [--fix]` | Check every cached file (existence, size, blake3); `--fix` re-downloads damage |
 | `probe SLUG` | Hit the live API and report what parsed — the drift early-warning system |
+| `opml` | Print an OPML subscription list of every servable feed (also at `/subscriptions.opml`) |
 | `completions SHELL` | Print a completion script for `fish`, `zsh`, `bash` (and friends) |
 | `manpage [--out DIR]` | Write `splicefeed.1` plus a page per subcommand |
 
@@ -83,8 +86,9 @@ a commented copy.
 
 ## HTTP surface
 
-`/feeds/<slug>.xml` · `/media/…` (range-served) · `/artwork/…` ·
-`/healthz` · `/debug` (status report as JSON) · `/metrics` (Prometheus).
+`/feeds/<slug>.xml` · `/subscriptions.opml` (import once, subscribe to
+everything) · `/media/…` (range-served) · `/artwork/…` · `/healthz` ·
+`/debug` (status report as JSON) · `/metrics` (Prometheus).
 
 No TLS, no auth, by design: bind to loopback and put
 [Caddy](https://caddyserver.com/) in front if you need either.

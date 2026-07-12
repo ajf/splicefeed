@@ -86,6 +86,10 @@ enum Command {
         /// Show slug to probe, e.g. `melodik-revolution`.
         slug: String,
     },
+    /// Print an OPML subscription list of every servable feed to
+    /// stdout — import it into a podcast app to subscribe to all
+    /// shows at once. (Also served at /subscriptions.opml.)
+    Opml,
     /// Print a shell completion script to stdout.
     ///
     /// fish:  splicefeed completions fish > ~/.config/fish/completions/splicefeed.fish
@@ -124,6 +128,15 @@ async fn main() -> anyhow::Result<()> {
             verify(cli.config.as_deref(), slug.as_deref(), fix, format).await
         }
         Command::Probe { slug } => probe(cli.config.as_deref(), &slug).await,
+        Command::Opml => {
+            let config = Config::load(cli.config.as_deref())?;
+            let library = Library::open(config).await?;
+            let mut out = Vec::new();
+            library.write_opml(&mut out).await?;
+            use std::io::Write;
+            std::io::stdout().write_all(&out)?;
+            Ok(())
+        }
         Command::Completions { shell } => {
             use clap::CommandFactory;
             use std::io::Write;
