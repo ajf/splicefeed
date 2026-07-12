@@ -1,14 +1,13 @@
 //! Live status TUI (`splicefeed status --watch`).
 //!
-//! Milestone-6 precursor: renders the same [`StatusReport`] the plain
-//! `status` command and `/debug` route use, refreshed from the database
-//! every couple of seconds. When the scheduler and control socket land,
-//! this view switches to the daemon's in-process state (in-flight
-//! downloads, live events) over IPC — the rendering stays.
-//!
-//! Reading the database directly means it works whether or not a daemon
-//! is running (WAL + busy timeout), so "daemon not running" is simply a
-//! quieter screen, never a panic.
+//! Renders the same [`StatusReport`] the plain `status` command and the
+//! `/debug` route use, refreshed from the database every couple of
+//! seconds — so it works whether or not a daemon is running (WAL + busy
+//! timeout), and "daemon not running" is simply a quieter screen, never
+//! a panic. When the daemon's control socket is reachable, the view
+//! additionally gains live vitals in the header (uptime, HTTP request
+//! count), a rolling event log, and event-driven refreshes that beat
+//! the 2-second tick.
 
 use std::time::Duration;
 

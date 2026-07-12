@@ -6,8 +6,8 @@
 //! freshly loaded config. A failed reload — unparseable TOML, invalid
 //! config, or a restart-only change — logs loudly and leaves the old
 //! configuration serving; an operator typo must never take down the
-//! feeds. (The milestone-5 scheduler subscribes to the same channel to
-//! pick up interval and show-list changes.)
+//! feeds. (The scheduler subscribes to the same channel to pick up
+//! interval and show-list changes.)
 //!
 //! Restart-only settings: `bind` (the TCP listener is already bound) and
 //! `data_dir` (the media/artwork routes and the shared storage handle

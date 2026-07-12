@@ -5,8 +5,8 @@ into standard podcast RSS feeds any podcast app can subscribe to. Strictly a
 personal-use LAN daemon for content you already pay for — see
 [DESIGN.md](DESIGN.md) for architecture and decisions.
 
-**Status: feature-complete.** All eight milestones shipped; feeds validated
-end to end in Apple Podcasts.
+**Status: feature-complete.** Feeds validated end to end in Apple
+Podcasts.
 
 ## How it works
 
@@ -47,6 +47,8 @@ for legacy unsigned stream URLs.
 | `status --watch` | Live TUI; with a running daemon: vitals + event stream over the control socket |
 | `verify [SLUG] [--fix]` | Check every cached file (existence, size, blake3); `--fix` re-downloads damage |
 | `probe SLUG` | Hit the live API and report what parsed — the drift early-warning system |
+| `completions SHELL` | Print a completion script for `fish`, `zsh`, `bash` (and friends) |
+| `manpage [--out DIR]` | Write `splicefeed.1` plus a page per subcommand |
 
 `kill -HUP <pid>` reloads the config without dropping the server: shows are
 added/removed live, credentials rotate, intervals change. `bind`,
@@ -93,6 +95,15 @@ file's header:
 - **Podman quadlet**: `packaging/Containerfile` +
   `packaging/splicefeed.container` — rootless container under systemd.
 - **launchd (macOS)**: `packaging/io.splicefeed.daemon.plist`.
+
+Shell completions and man pages come from the binary itself:
+
+```sh
+splicefeed completions fish > ~/.config/fish/completions/splicefeed.fish
+splicefeed completions zsh  > "${fpath[1]}/_splicefeed"
+splicefeed completions bash > /etc/bash_completion.d/splicefeed
+splicefeed manpage --out /usr/local/share/man/man1 && mandb
+```
 
 ## When DI.FM changes their API
 

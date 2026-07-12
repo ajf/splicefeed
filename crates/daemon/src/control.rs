@@ -1,4 +1,4 @@
-//! The unix control socket (milestone 6): NDJSON request/response plus a
+//! The unix control socket: NDJSON request/response plus a
 //! subscription stream, serving the daemon's in-process view to
 //! `splicefeed status --watch` and anything else on the box.
 //!

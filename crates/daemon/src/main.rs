@@ -2,8 +2,7 @@
 //!
 //! All backend logic lives in the `splicefeed` library; this crate adds the
 //! axum HTTP server, the unix-socket control server, the ratatui status
-//! TUI, telemetry exporter wiring, CLI parsing, and daemon lifecycle
-//! (milestones 4–7).
+//! TUI, telemetry exporter wiring, CLI parsing, and daemon lifecycle.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,7 +39,6 @@ enum Command {
     },
     /// Print the library's state from the database: cached files with
     /// locations and hashes, per-show poll health, total space used.
-    /// (The live TUI over the control socket lands in milestone 6.)
     Status {
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
@@ -67,6 +65,22 @@ enum Command {
         /// Show slug to probe, e.g. `melodik-revolution`.
         slug: String,
     },
+    /// Print a shell completion script to stdout.
+    ///
+    /// fish:  splicefeed completions fish > ~/.config/fish/completions/splicefeed.fish
+    /// zsh:   splicefeed completions zsh > "${fpath[1]}/_splicefeed"
+    /// bash:  splicefeed completions bash > /etc/bash_completion.d/splicefeed
+    Completions {
+        /// Target shell.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Write man pages (splicefeed.1 plus one page per subcommand).
+    Manpage {
+        /// Directory to write the pages into.
+        #[arg(long, default_value = ".", value_name = "DIR")]
+        out: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -89,7 +103,43 @@ async fn main() -> anyhow::Result<()> {
             verify(cli.config.as_deref(), slug.as_deref(), fix, format).await
         }
         Command::Probe { slug } => probe(cli.config.as_deref(), &slug).await,
+        Command::Completions { shell } => {
+            use clap::CommandFactory;
+            use std::io::Write;
+            // Render to a buffer first: generate() panics on write
+            // errors, and `completions fish | head` closing the pipe
+            // early is a normal way to use this command.
+            let mut script = Vec::new();
+            clap_complete::generate(shell, &mut Cli::command(), "splicefeed", &mut script);
+            std::io::stdout().write_all(&script).ok();
+            Ok(())
+        }
+        Command::Manpage { out } => manpage(&out),
     }
+}
+
+/// Render `splicefeed.1` and a page per subcommand into `out`.
+fn manpage(out: &std::path::Path) -> anyhow::Result<()> {
+    use clap::CommandFactory;
+    std::fs::create_dir_all(out)?;
+    let cmd = Cli::command();
+
+    let write = |name: String, cmd: clap::Command| -> anyhow::Result<()> {
+        let path = out.join(format!("{name}.1"));
+        let mut buffer = Vec::new();
+        clap_mangen::Man::new(cmd).render(&mut buffer)?;
+        std::fs::write(&path, buffer)?;
+        println!("wrote {}", path.display());
+        Ok(())
+    };
+
+    write("splicefeed".into(), cmd.clone())?;
+    cmd.get_subcommands()
+        .filter(|sub| !sub.is_hide_set() && sub.get_name() != "help")
+        .try_for_each(|sub| {
+            let name = format!("splicefeed-{}", sub.get_name());
+            write(name.clone(), sub.clone().name(name))
+        })
 }
 
 /// How `status` renders its report.

@@ -56,7 +56,11 @@ lofty = "0.24"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
-clap = { version = "4", features = ["derive", "env"] }
+# `string` lets the manpage generator rename subcommands with owned
+# strings ("splicefeed-run" etc.).
+clap = { version = "4", features = ["derive", "env", "string"] }
+clap_complete = "4"
+clap_mangen = "0.3"
 
 [profile.release]
 lto = "thin"

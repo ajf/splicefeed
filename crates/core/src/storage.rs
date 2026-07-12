@@ -84,7 +84,7 @@ pub struct ShowRecord {
     pub title: String,
     /// Provider description, if any.
     pub description: Option<String>,
-    /// Cached artwork file, if fetched (milestone 4).
+    /// Cached artwork file, if fetched.
     pub artwork_path: Option<PathBuf>,
     /// When the show was last polled, if ever.
     pub last_poll_at: Option<jiff::Timestamp>,

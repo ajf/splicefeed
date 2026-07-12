@@ -1,4 +1,4 @@
-//! Metrics (milestone 7): one OpenTelemetry registry, two ways out.
+//! Metrics: one OpenTelemetry registry, two ways out.
 //!
 //! The Prometheus reader always feeds the `/metrics` route (pull —
 //! nothing leaves the box); an OTLP `PeriodicReader` pushes to a
@@ -7,8 +7,8 @@
 //!
 //! The boundary rule keeps every `opentelemetry` crate out of the
 //! library tree, so the libraries never *record* metrics directly:
-//! the sync engine broadcasts domain events (milestone 6) and
-//! [`pump_events`] translates them into counters here in the binary;
+//! the sync engine broadcasts domain events and [`pump_events`]
+//! translates them into counters here in the binary;
 //! HTTP latency is measured by axum middleware in the server module.
 //!
 //! Decisions within the design's leeway: metrics only — traces stay on

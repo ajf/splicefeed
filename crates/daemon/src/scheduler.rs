@@ -1,4 +1,4 @@
-//! The poll scheduler: one jittered loop per show (milestone 5).
+//! The poll scheduler: one jittered loop per show.
 //!
 //! Each configured show sleeps its own interval (per-show override or
 //! the global default), ±10% jitter per cycle so polls never align into

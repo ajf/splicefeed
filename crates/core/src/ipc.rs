@@ -6,8 +6,7 @@
 //! `poll-now <show>` can be added without breaking older clients, and the
 //! event stream carries an untagged [`Event::Unknown`] tail so a newer
 //! daemon never breaks an older TUI (`#[serde(other)]` only works on unit
-//! variants, hence the wrapper). Snapshot/event payloads grow in
-//! milestone 6; this is the protocol skeleton.
+//! variants, hence the wrapper).
 
 use std::path::PathBuf;
 

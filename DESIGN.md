@@ -58,7 +58,7 @@ were reviewed and approved before implementation.
 | Dates | `jiff` | Actively developed, sane API, RFC 2822 formatting built in (`jiff::fmt::rfc2822`) which is exactly what feeds need. |
 | RSS XML | hand-written via `quick-xml` writer | **Deliberate hand-roll.** The spec demands byte-identical regeneration; owning every byte (element order, attribute order, no `lastBuildDate`) is simpler than auditing the `rss` crate's output stability across versions. The itunes namespace surface we emit is small. This is one of the two sanctioned hand-rolls (see below). |
 | IPC framing | newline-delimited JSON | Debuggable with `socat`/`jq`; framing efficiency is irrelevant on a local control socket. `postcard` rejected. |
-| Metrics | `opentelemetry`/`opentelemetry_sdk` as the single registry; OTLP via `PeriodicReader` (off by default), Prometheus `/metrics` via the `opentelemetry-prometheus` reader | One source of truth, as required. Known risk: the prometheus bridge crate has historically lagged the SDK; versions are pinned together in the workspace and telemetry lands in the last milestone, so if the bridge is incompatible at that point we re-evaluate (fallback: OTel SDK + a thin manual encoder over its in-memory reader). The TUI reads from the same in-process state/instrumentation layer — no parallel bookkeeping. |
+| Metrics | `opentelemetry`/`opentelemetry_sdk` as the single registry; OTLP via `PeriodicReader` (off by default), Prometheus `/metrics` via the `opentelemetry-prometheus` reader | One source of truth, as required. Known risk when this was decided: the prometheus bridge crate had historically lagged the SDK. Resolved in practice — API/SDK/bridge/otlp all align at 0.32 and are pinned together in the workspace. The TUI reads from the same in-process state/instrumentation layer — no parallel bookkeeping. |
 | Config | `figment` (TOML file + `SPLICEFEED_CONFIG`/`DIFM_API_KEY`/`DIFM_LISTEN_KEY` env overrides, env wins) | Exactly the layering semantics required, without hand-rolling precedence. |
 | HTTP client | `reqwest` (rustls, streaming) | Standard. |
 | Retries/backoff | `backon` | Small, maintained, async-native. |
@@ -255,7 +255,7 @@ reusable buffer. Determinism rules:
   (local path or URL) beats provider artwork
 - `/healthz` — liveness + last-successful-poll per show
 - `/debug` — the `status` CLI report as JSON (operator request)
-- `/metrics` — Prometheus scrape (same OTel registry; milestone 7)
+- `/metrics` — Prometheus scrape (same OTel registry; always on, pull-only)
 
 Binds loopback by default; exposing wider is an explicit config choice.
 No TLS and no auth of any kind — operator decision 2026-07-11: Caddy
@@ -268,8 +268,8 @@ changed, providers rebuilt) and swaps it in, then syncs so added shows
 materialize. A failed reload — bad TOML, invalid config, or a
 restart-only change — logs and leaves the old config serving; `bind`
 and `data_dir` are restart-only (listener and media routes captured
-them at startup). The milestone-5 scheduler subscribes to the same
-channel. systemd gets `ExecReload=kill -HUP $MAINPID` in milestone 8.
+them at startup). The scheduler subscribes to the same channel, and the
+packaged systemd unit maps `systemctl reload` to `kill -HUP $MAINPID`.
 
 ## IPC + status TUI
 
@@ -324,58 +324,6 @@ as the contract of the public API. Embedders whose settings don't live in a
 file the library can read use `Config::from_toml_str` — identical env
 layering, defaults, and validation, no filesystem involved. `#![deny(missing_docs)]` on all lib crates;
 `pub` only what the binary and examples need.
-
-## Milestones
-
-1. **Skeleton** — workspace, config schema, domain types, CLI shell. *(done)*
-2. **Provider** — confirm DI.FM/AudioAddict endpoints empirically (needs
-   listen key), capture fixtures, implement `difm` + quarantine + `probe`.
-   *(done — except the audio-asset shape, still blocked on a real listen
-   key; failed episodes are recorded and retried each sync, so it can be
-   confirmed with `probe` at any time without further code changes)*
-3. **Storage + downloader** — SQLite state, streaming downloads, retention.
-   *(done — `run --once` works end to end)*
-4. **RSS + server** — feed generation, axum routes, range-served media.
-   **← usable milestone: feeds work in a real podcast app here.**
-   *(done — validated end to end in Apple Podcasts, 2026-07-12;
-   /feeds, /media (range-served), /artwork, /healthz, /debug;
-   artwork cached at sync time. `run` currently syncs once at startup
-   then serves; the jittered scheduler is milestone 5. `write_feed`
-   became `async` — it reads storage.)*
-5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
-   *(done — per-show poll loops with ±10% jitter, serialized as the
-   polite rate limit, subscribed to the reload channel so SIGHUP swaps
-   the poll set live; conditional listings with per-show ETags; stale
-   `downloading` rows healed at sync start. `--once`, graceful
-   shutdown, and SIGHUP reload had shipped earlier.)*
-6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI.
-   *(done — NDJSON control socket (0600, stale-file tolerant, removed
-   on shutdown): Hello/Snapshot/Subscribe; the sync engine broadcasts
-   events (poll start/finish, discoveries, download outcomes, pruning,
-   quarantines) through the `Library`, and subscribers survive reloads.
-   `status --watch` connects when a daemon is running — vitals in the
-   header (uptime, http requests), a rolling event log pane, and
-   event-driven table refreshes — and still renders everything from
-   the database when not. Also shipped earlier under this milestone's
-   banner: plain `status`/`--format json`, `verify [SLUG] [--fix]`.)*
-7. **Telemetry** — OTel/OTLP/Prometheus wiring (bridge risk re-checked here).
-   *(done — bridge risk resolved: API/SDK/prometheus-bridge/otlp all
-   align at 0.32, pinned together. One SdkMeterProvider; /metrics via
-   the prometheus reader (always on, pull-only), OTLP/HTTP via
-   PeriodicReader when [telemetry.otlp] is configured. The boundary
-   rule holds: libraries emit domain events, the binary's pump
-   translates them to counters (polls, discovered, downloads by
-   result, pruned episodes/bytes, quarantined — labeled by
-   show/provider) and axum middleware records
-   http.server.request.duration. Traces stay on stderr via tracing;
-   tokio-metrics skipped — needs unstable tokio cfg.)*
-8. **Packaging** — systemd unit, Podman quadlet, launchd plist,
-   README (config reference, deployment, "when DI.FM changes their API").
-   *(done — packaging/ holds a hardened systemd unit with
-   ExecReload=SIGHUP, a Containerfile + rootless quadlet, and a launchd
-   agent; the musl static build was dropped by operator decision —
-   plain glibc release builds. README carries the full config
-   reference, deployment walkthroughs, and the API-drift runbook.)*
 
 ## Non-goals
 
