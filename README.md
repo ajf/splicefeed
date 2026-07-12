@@ -33,9 +33,13 @@ app.
 
 The **member API key** is required (`[auth.difm] api_key`, or the
 `DIFM_API_KEY` env var): it authorizes the AudioAddict API, including
-episode audio. Find it while logged in at di.fm — view the page source and
-search for `api_key`. The premium *listen key* is optional and only kept
-for legacy unsigned stream URLs.
+episode audio. It is *not* the "listen key" shown on the di.fm settings
+page. To find it: log in at https://www.di.fm in a browser, view the page
+source (Ctrl-U), and search for `api_key` — it sits in the embedded app
+config as `"api_key":"…"`. Then confirm with `splicefeed probe <slug>`:
+`audio: OK` means the key works. (The premium *listen key* is optional and
+only kept for legacy unsigned stream URLs; config.example.toml walks
+through all of this too.)
 
 ## Commands
 

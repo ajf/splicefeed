@@ -49,11 +49,23 @@ keep_last = 50
 
 # DI.FM premium credentials.
 [auth.difm]
-# Member API key — the credential the API requires, including episode
-# audio (it returns signed, self-authorizing playback URLs). Required if
-# any show uses the difm provider. Find it while logged in at
-# https://www.di.fm: view the page source and search for "api_key" in the
-# embedded app config. The DIFM_API_KEY env var overrides this value.
+# Member API key — REQUIRED, and the trickiest part of setup. This is the
+# credential the AudioAddict API accepts (episode audio comes back as
+# signed, self-authorizing playback URLs); it is NOT the "listen key"
+# shown on the di.fm settings page.
+#
+# To get it:
+#   1. Log in to https://www.di.fm in a web browser (premium account).
+#   2. View the page source (Ctrl-U / Cmd-Option-U — any logged-in page
+#      works).
+#   3. Search the source for  api_key  — it appears in the embedded app
+#      config JSON as something like  "api_key":"a1b2c3..."
+#   4. Copy that value here (or into the DIFM_API_KEY env var, which
+#      overrides this file).
+#
+# Verify it works with:  splicefeed probe <your-show-slug>
+# ("audio: OK" means the key is good; the error hints name the key
+# they suspect otherwise.)
 #api_key = "your-member-api-key"
 # Premium listen key — optional. Only used if an audio URL ever resolves
 # to a legacy unsigned stream host; the signed playback URLs above don't
