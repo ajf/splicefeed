@@ -7,5 +7,6 @@
 pub mod ops;
 pub mod reload;
 pub mod report;
+pub mod scheduler;
 pub mod server;
 pub mod tui;

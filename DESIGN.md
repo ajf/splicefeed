@@ -205,9 +205,21 @@ download-then-prune every poll.
   retention policy will keep are fetched at all (see Storage). Distinct
   from retention: `fetch_last` bounds what comes in, `keep_last`/`max_gb`
   bound what stays.
-- Polls per-show on its interval **with jitter**, conditional requests
-  (`If-Modified-Since`/`ETag`) where upstream supports them, and a global
-  polite rate limit — this is someone else's infrastructure.
+- Polls per-show on its interval **with ±10% jitter** per cycle, and a
+  global one-permit semaphore serializes syncs — at most one poll runs
+  at any moment: the polite rate limit; this is someone else's
+  infrastructure. A stale `downloading` row (no progress for 10+
+  minutes — a crashed process's leftover) is healed to retryable
+  `failed` at the start of each sync.
+- Conditional listings: the previous poll's `ETag` is stored per show
+  (schema v3) and sent as `If-None-Match`; a 304 skips discovery and the
+  show-metadata request entirely — the stored window still drives
+  retries and retention. **Reality check (measured 2026-07-12):**
+  AudioAddict sends weak ETags but identical requests return different
+  bodies (volatile vote-tracking fields) and therefore different
+  validators, so upstream never actually answers 304. The mechanism is
+  tested, costs one header, and stays for the day upstream fixes it or
+  a provider that honors validators.
 - Streams response body straight to disk (`AsyncWrite`), hashing with blake3
   on the way through; episodes are 250+ MB and are never buffered in memory.
   `bytes::Bytes` chunks are shared between writer and hasher.
@@ -330,9 +342,11 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    then serves; the jittered scheduler is milestone 5. `write_feed`
    became `async` — it reads storage.)*
 5. **Scheduler + daemon** — jittered polling, `--once`, graceful shutdown.
-   *(partially shipped early: `--once`, graceful ctrl-c shutdown, and
-   SIGHUP config reload are done; the jittered per-show poll loop and
-   polite rate limit remain.)*
+   *(done — per-show poll loops with ±10% jitter, serialized as the
+   polite rate limit, subscribed to the reload channel so SIGHUP swaps
+   the poll set live; conditional listings with per-show ETags; stale
+   `downloading` rows healed at sync start. `--once`, graceful
+   shutdown, and SIGHUP reload had shipped earlier.)*
 6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (Much
    of this shipped early: plain-text/JSON `status` reading the database
    directly (milestone 3), `verify [SLUG] [--fix]` — existence, size,

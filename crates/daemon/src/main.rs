@@ -12,7 +12,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
-use splicefeed_daemon::{ops, reload, report, server};
+use splicefeed_daemon::{ops, reload, report, scheduler, server};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -535,6 +535,7 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
             // Interim until the milestone-5 scheduler lands: converge
             // once in the background, then serve until ctrl-c.
             tokio::spawn(initial_sync(tx.borrow().clone()));
+            tokio::spawn(scheduler::run(rx.clone()));
             #[cfg(unix)]
             tokio::spawn(reload::on_sighup(
                 tx,

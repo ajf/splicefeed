@@ -206,9 +206,20 @@ impl Library {
         Ok(self.storage.episodes(slug).await?)
     }
 
+    /// How long a `downloading` row may go without progress before a
+    /// sync treats it as a dead leftover and flips it to retryable
+    /// `failed`. Live transfers report progress about once a second.
+    const STALE_DOWNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
     /// Poll one show: discover new episodes, download the ones retention
     /// will keep (bounded concurrency, one failure never aborts the
     /// rest), apply retention.
+    ///
+    /// Polls are conditional where the provider supports it: the
+    /// previous listing's validator is sent upstream, and a 304 skips
+    /// discovery entirely — the poll costs one header exchange, with the
+    /// stored window (newest rows, `fetch_last`-bounded) still driving
+    /// retries and retention.
     ///
     /// Retention is planned before downloading, so an episode that would
     /// be pruned immediately is never fetched — and a pruned tombstone
@@ -221,20 +232,25 @@ impl Library {
         let show = self.show_config(slug)?;
         let provider = self.providers.get(show.provider())?;
         let limit = show.fetch_last(self.config.fetch_last());
+        let etag = self
+            .storage
+            .show(slug)
+            .await?
+            .and_then(|record| record.episodes_etag);
 
-        let listing = async {
-            let meta = provider.show(slug).await?;
-            // Conditional polls (stored ETag) land with the scheduler;
-            // until then every listing is unconditional.
-            let episodes = match provider.episodes(slug, limit, None).await? {
-                EpisodeListing::Modified { episodes, .. } => episodes,
-                EpisodeListing::NotModified => Vec::new(),
-            };
-            Ok::<_, ProviderError>((meta, episodes))
+        // Heal dead `downloading` leftovers (crashed/killed process)
+        // into retryable failures before computing what to fetch.
+        let healed = self
+            .storage
+            .reset_stale_downloads(slug, Self::STALE_DOWNLOAD_AFTER)
+            .await?;
+        if healed > 0 {
+            tracing::warn!(show = %slug, healed, "reset stale downloads to failed for retry");
         }
-        .await;
-        let (meta, episodes) = match listing {
-            Ok(ok) => ok,
+
+        let listing = provider.episodes(slug, limit, etag.as_deref()).await;
+        let listing = match listing {
+            Ok(listing) => listing,
             Err(err) => {
                 self.storage
                     .record_poll(slug, Some(err.to_string()))
@@ -242,9 +258,41 @@ impl Library {
                 return Err(err.into());
             }
         };
-        self.storage.upsert_show(&meta, show.provider()).await?;
-        self.cache_artwork(show, &meta, slug).await;
-        let discovered = self.storage.discover(slug, &episodes).await?;
+        let (window_ids, discovered): (Vec<EpisodeId>, u32) = match listing {
+            EpisodeListing::Modified { episodes, etag } => {
+                // Show metadata rides along with full listings only; an
+                // unchanged show skips both requests.
+                let meta = match provider.show(slug).await {
+                    Ok(meta) => meta,
+                    Err(err) => {
+                        self.storage
+                            .record_poll(slug, Some(err.to_string()))
+                            .await?;
+                        return Err(err.into());
+                    }
+                };
+                self.storage.upsert_show(&meta, show.provider()).await?;
+                self.cache_artwork(show, &meta, slug).await;
+                let discovered = self.storage.discover(slug, &episodes).await?;
+                self.storage.set_episodes_etag(slug, etag).await?;
+                (episodes.into_iter().map(|ep| ep.id).collect(), discovered)
+            }
+            EpisodeListing::NotModified => {
+                // The listing is exactly what we saw last poll, so the
+                // stored rows (newest first) bounded by fetch_last are
+                // the window; retries and retention still run over it.
+                tracing::debug!(show = %slug, "episode listing unchanged (304)");
+                let window = self
+                    .storage
+                    .episodes(slug)
+                    .await?
+                    .into_iter()
+                    .take(limit.map_or(usize::MAX, |n| n.get() as usize))
+                    .map(|record| record.id)
+                    .collect();
+                (window, 0)
+            }
+        };
 
         // Plan retention over the listing *before* downloading: an
         // episode the policy would prune right back out is never fetched
@@ -262,14 +310,11 @@ impl Library {
         let records = self.storage.episodes(slug).await?;
         let by_id: std::collections::HashMap<&EpisodeId, &EpisodeRecord> =
             records.iter().map(|record| (&record.id, record)).collect();
-        let candidates: Vec<retention::Candidate> = episodes
+        let candidates: Vec<retention::Candidate> = window_ids
             .iter()
-            .map(|ep| retention::Candidate {
-                id: ep.id.clone(),
-                bytes: by_id
-                    .get(&ep.id)
-                    .and_then(|record| record.bytes)
-                    .unwrap_or(0),
+            .map(|id| retention::Candidate {
+                id: id.clone(),
+                bytes: by_id.get(id).and_then(|record| record.bytes).unwrap_or(0),
             })
             .collect();
         let want: std::collections::HashSet<EpisodeId> = retention::split(&policy, &candidates)
@@ -277,10 +322,10 @@ impl Library {
             .into_iter()
             .collect();
 
-        let pending: Vec<&EpisodeRecord> = episodes
+        let pending: Vec<&EpisodeRecord> = window_ids
             .iter()
-            .filter(|ep| want.contains(&ep.id))
-            .filter_map(|ep| by_id.get(&ep.id).copied())
+            .filter(|id| want.contains(id))
+            .filter_map(|id| by_id.get(id).copied())
             .filter(|record| {
                 matches!(
                     record.state,

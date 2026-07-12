@@ -92,6 +92,9 @@ pub struct ShowRecord {
     pub last_poll_ok: Option<bool>,
     /// Error message of the last failed poll, cleared on success.
     pub last_error: Option<String>,
+    /// Validator from the last full episode listing, for conditional
+    /// polls.
+    pub episodes_etag: Option<String>,
 }
 
 /// An episode row.
@@ -189,6 +192,12 @@ ALTER TABLE episodes ADD COLUMN bytes_total INTEGER;
 ALTER TABLE episodes ADD COLUMN progress_at TEXT;
 ";
 
+/// v3: validator for conditional episode listings — an unchanged show
+/// polls for the cost of one 304.
+const SCHEMA_V3: &str = "
+ALTER TABLE shows ADD COLUMN episodes_etag TEXT;
+";
+
 /// Handle to the SQLite state. Cheap to clone; all clones share one
 /// connection.
 #[derive(Clone)]
@@ -269,7 +278,7 @@ impl Storage {
         self.with(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT slug, provider, title, description, artwork_path,
-                        last_poll_at, last_poll_ok, last_error
+                        last_poll_at, last_poll_ok, last_error, episodes_etag
                  FROM shows ORDER BY slug",
             )?;
             let rows = stmt.query_map([], decode_show)?;
@@ -291,13 +300,58 @@ impl Storage {
         .await
     }
 
+    /// Record the validator returned by a full episode listing.
+    pub async fn set_episodes_etag(
+        &self,
+        slug: &ShowSlug,
+        etag: Option<String>,
+    ) -> Result<(), StorageError> {
+        let slug = slug.clone();
+        self.with(move |conn| {
+            conn.execute(
+                "UPDATE shows SET episodes_etag = ?2 WHERE slug = ?1",
+                params![slug.as_str(), etag],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Flip `downloading` rows that stopped reporting progress back to
+    /// retryable `failed`: leftovers of a crashed or killed process
+    /// (their transfer loop is gone, so progress can never resume). Rows
+    /// with progress fresher than `older_than` are left alone — they
+    /// belong to a live transfer, possibly another process's. Returns
+    /// how many were healed.
+    pub async fn reset_stale_downloads(
+        &self,
+        show: &ShowSlug,
+        older_than: Duration,
+    ) -> Result<u32, StorageError> {
+        let show = show.clone();
+        let cutoff =
+            jiff::Timestamp::now() - jiff::Span::new().seconds(older_than.as_secs() as i64);
+        self.with(move |conn| {
+            let healed = conn.execute(
+                "UPDATE episodes
+                 SET state = 'failed', error_class = 'network',
+                     bytes_done = NULL, bytes_total = NULL, progress_at = NULL
+                 WHERE show_slug = ?1 AND state = 'downloading'
+                   AND (progress_at IS NULL OR progress_at < ?2)",
+                params![show.as_str(), cutoff.to_string()],
+            )?;
+            Ok(healed as u32)
+        })
+        .await
+    }
+
     /// Fetch one show row.
     pub async fn show(&self, slug: &ShowSlug) -> Result<Option<ShowRecord>, StorageError> {
         let slug = slug.clone();
         self.with(move |conn| {
             conn.query_row(
                 "SELECT slug, provider, title, description, artwork_path,
-                        last_poll_at, last_poll_ok, last_error
+                        last_poll_at, last_poll_ok, last_error, episodes_etag
                  FROM shows WHERE slug = ?1",
                 params![slug.as_str()],
                 decode_show,
@@ -578,7 +632,10 @@ fn migrate(conn: &Connection) -> Result<(), StorageError> {
     if version < 2 {
         conn.execute_batch(SCHEMA_V2)?;
     }
-    conn.pragma_update(None, "user_version", 2)?;
+    if version < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+    }
+    conn.pragma_update(None, "user_version", 3)?;
     Ok(())
 }
 
@@ -600,6 +657,7 @@ fn decode_show(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<ShowRecord, S
                 .transpose()?,
             last_poll_ok: row_get(row, 6)?,
             last_error: row_get(row, 7)?,
+            episodes_etag: row_get(row, 8)?,
         })
     })())
 }
@@ -913,6 +971,68 @@ mod tests {
         let rows = storage.episodes(&slug).await.expect("reads post-migration");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].bytes_done, None, "new columns default to NULL");
+    }
+
+    #[tokio::test]
+    async fn episodes_etag_roundtrips() {
+        let (_dir, storage, slug) = open_temp().await;
+        assert_eq!(
+            storage.show(&slug).await.unwrap().unwrap().episodes_etag,
+            None
+        );
+        storage
+            .set_episodes_etag(&slug, Some("W/\"abc\"".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            storage.show(&slug).await.unwrap().unwrap().episodes_etag,
+            Some("W/\"abc\"".into())
+        );
+        storage.set_episodes_etag(&slug, None).await.unwrap();
+        assert_eq!(
+            storage.show(&slug).await.unwrap().unwrap().episodes_etag,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_downloads_heal_to_failed_but_live_ones_survive() {
+        let (_dir, storage, slug) = open_temp().await;
+        storage
+            .discover(
+                &slug,
+                &[
+                    meta("162", "2026-07-05T18:00:00Z"),
+                    meta("161", "2026-06-07T18:00:00Z"),
+                ],
+            )
+            .await
+            .unwrap();
+        let dead: EpisodeId = "162".parse().unwrap();
+        let live: EpisodeId = "161".parse().unwrap();
+        // Dead: downloading with no progress ever reported.
+        storage.mark_downloading(&slug, &dead).await.unwrap();
+        // Live: downloading with fresh progress.
+        storage.mark_downloading(&slug, &live).await.unwrap();
+        storage
+            .set_progress(&slug, &live, 5, Some(10))
+            .await
+            .unwrap();
+
+        let healed = storage
+            .reset_stale_downloads(&slug, Duration::from_secs(600))
+            .await
+            .unwrap();
+        assert_eq!(healed, 1);
+        let states: std::collections::HashMap<String, EpisodeState> = storage
+            .episodes(&slug)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.id.to_string(), row.state))
+            .collect();
+        assert_eq!(states["162"], EpisodeState::Failed(ErrorClass::Network));
+        assert_eq!(states["161"], EpisodeState::Downloading);
     }
 
     #[tokio::test]

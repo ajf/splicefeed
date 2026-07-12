@@ -208,6 +208,76 @@ async fn fetch_last_bounds_discovery_and_download() {
 }
 
 #[tokio::test]
+async fn unchanged_listing_polls_via_304() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/shows/test-show"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "slug": "test-show", "name": "Test Show",
+        })))
+        .mount(&server)
+        .await;
+    // The listing serves one body with a validator, then only answers
+    // 304 to the conditional request; a non-conditional second poll
+    // hits the 500 fallback and fails the test loudly.
+    Mock::given(method("GET"))
+        .and(path("/shows/test-show/episodes"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "W/\"v1\"")
+                .set_body_json(json!([episode_json("162", "2026-07-05T18:00:00Z", None)])),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/shows/test-show/episodes"))
+        .and(wiremock::matchers::header("if-none-match", "W/\"v1\""))
+        .respond_with(ResponseTemplate::new(304))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/shows/test-show/episodes"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/shows/test-show/episodes/162"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(episode_json(
+            "162",
+            "2026-07-05T18:00:00Z",
+            Some(&server.uri()),
+        )))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/audio/162.mp4"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mp4")
+                .set_body_bytes(AUDIO_NEW),
+        )
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let library = open_library(&server, dir.path()).await;
+    let slug: ShowSlug = "test-show".parse().expect("valid slug");
+
+    let report = library.sync(&slug).await.expect("first sync");
+    assert_eq!(report.discovered, 1);
+    assert_eq!(report.downloaded, 1);
+
+    // Second poll: 304 — nothing new, nothing re-fetched, poll healthy.
+    let report = library.sync(&slug).await.expect("conditional sync");
+    assert_eq!(report.discovered, 0);
+    assert_eq!(report.downloaded, 0);
+    let records = library.show_records().await.expect("records");
+    assert_eq!(records[0].last_poll_ok, Some(true));
+    assert_eq!(records[0].episodes_etag.as_deref(), Some("W/\"v1\""));
+}
+
+#[tokio::test]
 async fn feed_is_deterministic_valid_and_external() {
     let server = MockServer::start().await;
     mount_api(&server).await;
