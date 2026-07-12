@@ -72,6 +72,8 @@ pub struct Config {
     #[serde(default)]
     fetch_last: Option<std::num::NonZeroU32>,
     #[serde(default)]
+    control_socket: Option<PathBuf>,
+    #[serde(default)]
     retention: Retention,
     #[serde(default)]
     auth: Auth,
@@ -193,6 +195,18 @@ impl Config {
     /// Per-show overrides layer on top; see [`ShowConfig::fetch_last`].
     pub fn fetch_last(&self) -> Option<std::num::NonZeroU32> {
         self.fetch_last
+    }
+
+    /// Where the daemon's control socket lives: the configured path, or
+    /// `$XDG_RUNTIME_DIR/splicefeed.sock`, or (no runtime dir — e.g.
+    /// macOS) `<data_dir>/splicefeed.sock`.
+    pub fn control_socket_path(&self) -> PathBuf {
+        self.control_socket.clone().unwrap_or_else(|| {
+            match std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+                Some(runtime) if runtime.is_absolute() => runtime.join("splicefeed.sock"),
+                _ => self.data_dir().join("splicefeed.sock"),
+            }
+        })
     }
 
     /// Global retention policy (per-show overrides layer on top).

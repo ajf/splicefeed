@@ -19,6 +19,7 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use splicefeed::{EpisodeState, Library};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 use crate::report::{self, ShowStatus, StatusReport};
 
@@ -31,7 +32,15 @@ pub struct App {
     pub report: StatusReport,
     /// Index of the selected show.
     pub selected: usize,
+    /// Daemon vitals from the control socket; `None` = no daemon
+    /// running (the tables still work — they read the database).
+    pub vitals: Option<splicefeed::ipc::Snapshot>,
+    /// Rolling event log from the control socket, newest last.
+    pub events: std::collections::VecDeque<String>,
 }
+
+/// Rolling event log capacity.
+const EVENT_LOG: usize = 100;
 
 impl App {
     fn clamp(&mut self) {
@@ -48,16 +57,69 @@ impl App {
 }
 
 /// Run the watch loop until the user quits (`q`, `Esc`, or ctrl-c).
-pub async fn watch(library: &Library) -> anyhow::Result<()> {
+/// `socket` is the daemon's control socket: when connectable, the view
+/// gains live vitals and an event stream; when not, everything still
+/// renders from the database.
+pub async fn watch(library: &Library, socket: &std::path::Path) -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
-    let result = run_loop(&mut terminal, library).await;
+    let result = run_loop(&mut terminal, library, socket).await;
     ratatui::restore();
     result
+}
+
+/// What the control-socket reader task feeds the render loop.
+enum Live {
+    Snapshot(splicefeed::ipc::Snapshot),
+    Event(splicefeed::ipc::KnownEvent),
+    /// Connection ended (daemon stopped, or never ran).
+    Gone,
+}
+
+/// Connect, subscribe, and forward the daemon's stream. Exits (sending
+/// [`Live::Gone`]) on any error — the TUI then shows DB-only state.
+async fn follow_control_socket(path: std::path::PathBuf, tx: tokio::sync::mpsc::Sender<Live>) {
+    let Ok(stream) = tokio::net::UnixStream::connect(&path).await else {
+        tx.send(Live::Gone).await.ok();
+        return;
+    };
+    let (reader, mut writer) = stream.into_split();
+    let mut lines = tokio::io::BufReader::new(reader).lines();
+
+    // Hello, then subscribe.
+    let hello = lines.next_line().await.ok().flatten();
+    let compatible = hello
+        .as_deref()
+        .and_then(|line| serde_json::from_str::<splicefeed::ipc::Hello>(line).ok())
+        .is_some_and(|hello| hello.protocol_version == splicefeed::ipc::PROTOCOL_VERSION);
+    if !compatible
+        || writer
+            .write_all(b"{\"request\":\"subscribe\"}\n")
+            .await
+            .is_err()
+    {
+        tx.send(Live::Gone).await.ok();
+        return;
+    }
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        // First reply is the snapshot; everything after is events.
+        if let Ok(splicefeed::ipc::Response::Snapshot(snapshot)) = serde_json::from_str(&line) {
+            if tx.send(Live::Snapshot(snapshot)).await.is_err() {
+                return;
+            }
+        } else if let Ok(splicefeed::ipc::Event::Known(event)) = serde_json::from_str(&line)
+            && tx.send(Live::Event(event)).await.is_err()
+        {
+            return;
+        }
+    }
+    tx.send(Live::Gone).await.ok();
 }
 
 async fn run_loop(
     terminal: &mut ratatui::DefaultTerminal,
     library: &Library,
+    socket: &std::path::Path,
 ) -> anyhow::Result<()> {
     // Crossterm event reads are blocking; a dedicated thread feeds them
     // into the async loop. The thread ends when the receiver drops.
@@ -78,9 +140,14 @@ async fn run_loop(
         }
     });
 
+    let (live_tx, mut live) = tokio::sync::mpsc::channel(64);
+    tokio::spawn(follow_control_socket(socket.to_path_buf(), live_tx));
+
     let mut app = App {
         report: report::status_report(library).await?,
         selected: 0,
+        vitals: None,
+        events: std::collections::VecDeque::new(),
     };
     let mut ticker = tokio::time::interval(REFRESH);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -92,6 +159,21 @@ async fn run_loop(
                 app.report = report::status_report(library).await?;
                 app.clamp();
             }
+            update = live.recv() => match update {
+                Some(Live::Snapshot(snapshot)) => app.vitals = Some(snapshot),
+                Some(Live::Event(event)) => {
+                    if app.events.len() == EVENT_LOG {
+                        app.events.pop_front();
+                    }
+                    app.events.push_back(describe(&event));
+                    // Events mean state changed: refresh the tables now
+                    // instead of waiting out the tick.
+                    app.report = report::status_report(library).await?;
+                    app.clamp();
+                }
+                Some(Live::Gone) => app.vitals = None,
+                None => {}
+            },
             event = events.recv() => match event {
                 Some(Event::Key(key)) if key.kind == KeyEventKind::Press => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -121,24 +203,37 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else {
         (active.len() as u16 + 2).min(6)
     };
-    let [header, downloads, shows, episodes, footer] = Layout::vertical([
+    let log_height = if app.vitals.is_some() || !app.events.is_empty() {
+        7
+    } else {
+        0
+    };
+    let [header, downloads, shows, episodes, log, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(downloads_height),
         Constraint::Length((app.report.shows.len() as u16 + 3).min(12)),
         Constraint::Min(4),
+        Constraint::Length(log_height),
         Constraint::Length(1),
     ])
     .areas(frame.area());
 
+    let vitals = match &app.vitals {
+        Some(snapshot) => format!(
+            " · daemon up {} · {} http req",
+            humantime::format_duration(Duration::from_secs(snapshot.uptime_secs)),
+            snapshot.http_requests,
+        ),
+        None => " · daemon offline".into(),
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             " splicefeed ".bold().reversed(),
             format!(
-                " {} file(s) · {} · {} download slot(s) · {}",
+                " {} file(s) · {} · {} download slot(s){vitals}",
                 app.report.total_files,
                 humansize::format_size(app.report.total_bytes, humansize::DECIMAL),
                 app.report.download_concurrency,
-                app.report.data_dir.display(),
             )
             .into(),
         ])),
@@ -160,10 +255,70 @@ pub fn draw(frame: &mut Frame, app: &App) {
         );
     }
 
+    if log_height > 0 {
+        let recent: Vec<Line> = app
+            .events
+            .iter()
+            .rev()
+            .take(usize::from(log_height.saturating_sub(2)))
+            .rev()
+            .map(|entry| Line::from(entry.as_str()))
+            .collect();
+        frame.render_widget(
+            Paragraph::new(recent).block(Block::new().borders(Borders::ALL).title("events")),
+            log,
+        );
+    }
+
     frame.render_widget(
         Paragraph::new(" ↑/↓ select · r refresh · q quit").dim(),
         footer,
     );
+}
+
+/// One line of the rolling event log.
+fn describe(event: &splicefeed::ipc::KnownEvent) -> String {
+    use splicefeed::ipc::KnownEvent;
+    let stamp = jiff::Timestamp::now().strftime("%H:%M:%S");
+    let what = match event {
+        KnownEvent::PollStarted { show } => format!("poll started: {show}"),
+        KnownEvent::PollFinished {
+            show,
+            ok: true,
+            new_episodes,
+        } => format!("poll ok: {show} ({new_episodes} new)"),
+        KnownEvent::PollFinished {
+            show, ok: false, ..
+        } => format!("poll FAILED: {show}"),
+        KnownEvent::EpisodeDiscovered { show, episode } => {
+            format!("discovered: {show}/{episode}")
+        }
+        KnownEvent::DownloadFinished {
+            show,
+            episode,
+            error: None,
+        } => format!("downloaded: {show}/{episode}"),
+        KnownEvent::DownloadFinished {
+            show,
+            episode,
+            error: Some(class),
+        } => format!("download FAILED ({class}): {show}/{episode}"),
+        KnownEvent::Pruned {
+            show,
+            episodes,
+            bytes_freed,
+        } => format!(
+            "pruned: {show} ({episodes} episode(s), {} freed)",
+            humansize::format_size(*bytes_freed, humansize::DECIMAL)
+        ),
+        KnownEvent::Quarantined { provider, path } => format!(
+            "QUARANTINED ({provider}): {}",
+            path.as_deref()
+                .map_or("<write failed>".into(), |p| p.display().to_string())
+        ),
+        other => format!("{other:?}"),
+    };
+    format!("{stamp}  {what}")
 }
 
 /// One in-flight download as the TUI shows it.
@@ -453,6 +608,8 @@ mod tests {
     fn renders_shows_and_selected_episodes() {
         let content = rendered(&App {
             report: fake_report(),
+            vitals: None,
+            events: std::collections::VecDeque::new(),
             selected: 0,
         });
         assert!(content.contains("melodik-revolution"));
@@ -471,6 +628,8 @@ mod tests {
     fn active_download_panel_shows_progress_and_health() {
         let content = rendered(&App {
             report: fake_report(),
+            vitals: None,
+            events: std::collections::VecDeque::new(),
             selected: 0,
         });
         assert!(content.contains("downloads (1/2 slots)"));
@@ -488,6 +647,8 @@ mod tests {
         let content = rendered(&App {
             report,
             selected: 0,
+            vitals: None,
+            events: std::collections::VecDeque::new(),
         });
         assert!(content.contains("stalled"));
     }
@@ -505,6 +666,8 @@ mod tests {
                 data_dir: "/data".into(),
             },
             selected: 0,
+            vitals: None,
+            events: std::collections::VecDeque::new(),
         });
         assert!(content.contains("no shows in storage yet"));
     }
@@ -513,6 +676,8 @@ mod tests {
     fn selection_stays_in_bounds() {
         let mut app = App {
             report: fake_report(),
+            vitals: None,
+            events: std::collections::VecDeque::new(),
             selected: 5,
         };
         app.clamp();

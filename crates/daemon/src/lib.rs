@@ -4,6 +4,7 @@
 //! boundary rule applies to the library crates, and this one is the
 //! binary's private support crate, not part of the public API.
 
+pub mod control;
 pub mod ops;
 pub mod reload;
 pub mod report;

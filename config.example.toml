@@ -21,6 +21,11 @@
 # How many episode downloads may run at once, across all shows.
 #download_concurrency = 2
 
+# Control socket for `splicefeed status --watch` (NDJSON over unix
+# socket, chmod 0600). Default: $XDG_RUNTIME_DIR/splicefeed.sock, or
+# <data_dir>/splicefeed.sock when no runtime dir exists (macOS).
+#control_socket = "/run/user/1000/splicefeed.sock"
+
 # Only look at each show's newest N episodes when syncing (discovery AND
 # download/retry). Unset = the provider's natural listing window (25 for
 # DI.FM). Distinct from retention: fetch_last bounds what comes in,

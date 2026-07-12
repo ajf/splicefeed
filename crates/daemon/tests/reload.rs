@@ -111,9 +111,12 @@ async fn rig(api: &MockServer, slugs: &[&str], external: &str) -> Rig {
         .expect("ephemeral bind");
     let addr = listener.local_addr().expect("bound addr");
     tokio::spawn(async move {
-        axum::serve(listener, server::router(rx))
-            .await
-            .expect("server runs");
+        axum::serve(
+            listener,
+            server::router(rx, splicefeed_daemon::control::Vitals::default()),
+        )
+        .await
+        .expect("server runs");
     });
     Rig {
         tx,

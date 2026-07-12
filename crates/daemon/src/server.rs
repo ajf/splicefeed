@@ -25,8 +25,9 @@ pub type LibraryHandle = watch::Receiver<Arc<Library>>;
 
 /// All routes over the current library. The `/media` and `/artwork`
 /// roots are captured from the initial config — `data_dir` is a
-/// restart-only setting, enforced by the reload guard.
-pub fn router(library: LibraryHandle) -> Router {
+/// restart-only setting, enforced by the reload guard. Every request
+/// bumps `vitals` for the control socket's snapshot.
+pub fn router(library: LibraryHandle, vitals: crate::control::Vitals) -> Router {
     let data_dir = library.borrow().config().data_dir().to_owned();
     Router::new()
         .route("/feeds/{feed}", get(feed))
@@ -36,12 +37,21 @@ pub fn router(library: LibraryHandle) -> Router {
         // Content-Type from extensions, and path sanitization.
         .nest_service("/media", ServeDir::new(data_dir.join("media")))
         .nest_service("/artwork", ServeDir::new(data_dir.join("artwork")))
+        .layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                vitals
+                    .http_requests
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                next.run(request)
+            },
+        ))
         .with_state(library)
 }
 
 /// Bind the configured address and serve until `shutdown` resolves.
 pub async fn serve(
     library: LibraryHandle,
+    vitals: crate::control::Vitals,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     let (bind, external) = {
@@ -53,7 +63,7 @@ pub async fn serve(
     };
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, %external, "HTTP server listening");
-    axum::serve(listener, router(library))
+    axum::serve(listener, router(library, vitals))
         .with_graceful_shutdown(shutdown)
         .await?;
     Ok(())

@@ -12,7 +12,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use splicefeed::{Config, EpisodeState, Library, Mode};
-use splicefeed_daemon::{ops, reload, report, scheduler, server};
+use splicefeed_daemon::{control, ops, reload, report, scheduler, server};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -111,7 +111,8 @@ async fn status(
     let config = Config::load(config_path)?;
     let library = Library::open(config).await?;
     if watch {
-        return splicefeed_daemon::tui::watch(&library).await;
+        let socket = library.config().control_socket_path();
+        return splicefeed_daemon::tui::watch(&library, &socket).await;
     }
 
     let report = report::status_report(&library).await?;
@@ -531,17 +532,27 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
     match mode {
         Mode::Once => ops::sync_all_once(&library).await,
         Mode::Serve => {
+            let socket_path = library.config().control_socket_path();
             let (tx, rx) = tokio::sync::watch::channel(Arc::new(library));
-            // Interim until the milestone-5 scheduler lands: converge
-            // once in the background, then serve until ctrl-c.
+            let vitals = control::Vitals::default();
+            // Converge once at startup; the scheduler takes it from there.
             tokio::spawn(initial_sync(tx.borrow().clone()));
             tokio::spawn(scheduler::run(rx.clone()));
+            tokio::spawn(control_serve(
+                socket_path.clone(),
+                rx.clone(),
+                vitals.clone(),
+            ));
             #[cfg(unix)]
             tokio::spawn(reload::on_sighup(
                 tx,
                 config_path.map(std::path::Path::to_path_buf),
             ));
-            server::serve(rx, shutdown_signal()).await
+            let served = server::serve(rx, vitals, shutdown_signal()).await;
+            // The control task can't see process exit; tidy its socket
+            // here (startup tolerates a stale file regardless).
+            std::fs::remove_file(&socket_path).ok();
+            served
         }
     }
 }
@@ -549,6 +560,16 @@ async fn run(config_path: Option<&std::path::Path>, mode: Mode) -> anyhow::Resul
 async fn initial_sync(library: Arc<Library>) {
     if let Err(err) = ops::sync_all_once(&library).await {
         tracing::error!(error = %err, "initial sync failed");
+    }
+}
+
+async fn control_serve(
+    path: std::path::PathBuf,
+    library: server::LibraryHandle,
+    vitals: control::Vitals,
+) {
+    if let Err(err) = control::serve(path, library, vitals).await {
+        tracing::error!(error = %err, "control socket failed; status --watch falls back to the database");
     }
 }
 

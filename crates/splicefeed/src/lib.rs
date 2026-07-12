@@ -144,6 +144,7 @@ pub struct Library {
     providers: ProviderRegistry,
     storage: Storage,
     downloader: Downloader,
+    events: tokio::sync::broadcast::Sender<ipc::KnownEvent>,
 }
 
 impl Library {
@@ -153,17 +154,31 @@ impl Library {
         let providers = ProviderRegistry::from_config(&config)?;
         let storage = Storage::open(config.data_dir()).await?;
         let downloader = Downloader::new(config.download_concurrency())?;
+        let (events, _) = tokio::sync::broadcast::channel(256);
         Ok(Self {
             config,
             providers,
             storage,
             downloader,
+            events,
         })
     }
 
     /// The validated configuration this library was opened with.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Subscribe to sync-engine events (polls, discoveries, download
+    /// outcomes, pruning). Slow subscribers lag and lose the oldest
+    /// events rather than blocking the sync engine.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<ipc::KnownEvent> {
+        self.events.subscribe()
+    }
+
+    fn emit(&self, event: ipc::KnownEvent) {
+        // No subscribers is the normal cron/embedded case, never an error.
+        self.events.send(event).ok();
     }
 
     /// A new `Library` over `config`, sharing this one's storage handle
@@ -187,6 +202,8 @@ impl Library {
             providers,
             storage: self.storage.clone(),
             downloader,
+            // Shared, so subscribers survive a reload.
+            events: self.events.clone(),
         })
     }
 
@@ -232,6 +249,7 @@ impl Library {
         let show = self.show_config(slug)?;
         let provider = self.providers.get(show.provider())?;
         let limit = show.fetch_last(self.config.fetch_last());
+        self.emit(ipc::KnownEvent::PollStarted { show: slug.clone() });
         let etag = self
             .storage
             .show(slug)
@@ -252,10 +270,7 @@ impl Library {
         let listing = match listing {
             Ok(listing) => listing,
             Err(err) => {
-                self.storage
-                    .record_poll(slug, Some(err.to_string()))
-                    .await?;
-                return Err(err.into());
+                return Err(self.poll_failed(slug, err).await?);
             }
         };
         let (window_ids, discovered): (Vec<EpisodeId>, u32) = match listing {
@@ -265,15 +280,19 @@ impl Library {
                 let meta = match provider.show(slug).await {
                     Ok(meta) => meta,
                     Err(err) => {
-                        self.storage
-                            .record_poll(slug, Some(err.to_string()))
-                            .await?;
-                        return Err(err.into());
+                        return Err(self.poll_failed(slug, err).await?);
                     }
                 };
                 self.storage.upsert_show(&meta, show.provider()).await?;
                 self.cache_artwork(show, &meta, slug).await;
-                let discovered = self.storage.discover(slug, &episodes).await?;
+                let new = self.storage.discover(slug, &episodes).await?;
+                let discovered = new.len() as u32;
+                new.into_iter().for_each(|episode| {
+                    self.emit(ipc::KnownEvent::EpisodeDiscovered {
+                        show: slug.clone(),
+                        episode,
+                    });
+                });
                 self.storage.set_episodes_etag(slug, etag).await?;
                 (episodes.into_iter().map(|ep| ep.id).collect(), discovered)
             }
@@ -349,11 +368,47 @@ impl Library {
         let pruned = self.apply_retention(slug, &policy).await?;
 
         self.storage.record_poll(slug, None).await?;
+        self.emit(ipc::KnownEvent::PollFinished {
+            show: slug.clone(),
+            ok: true,
+            new_episodes: discovered,
+        });
         Ok(SyncReport {
             discovered,
             downloaded,
             pruned,
         })
+    }
+
+    /// Record and broadcast a failed poll, then hand back the error to
+    /// return. (A listing-level parse failure also announces its
+    /// quarantined payload.)
+    async fn poll_failed(
+        &self,
+        slug: &ShowSlug,
+        err: ProviderError,
+    ) -> Result<LibraryError, LibraryError> {
+        self.storage
+            .record_poll(slug, Some(err.to_string()))
+            .await?;
+        if let ProviderError::Parse {
+            quarantine_path, ..
+        } = &err
+        {
+            self.emit(ipc::KnownEvent::Quarantined {
+                provider: self
+                    .show_config(slug)
+                    .map(|show| show.provider().to_owned())
+                    .unwrap_or_default(),
+                path: quarantine_path.clone(),
+            });
+        }
+        self.emit(ipc::KnownEvent::PollFinished {
+            show: slug.clone(),
+            ok: false,
+            new_episodes: 0,
+        });
+        Ok(err.into())
     }
 
     /// Cache the show's artwork to
@@ -597,25 +652,28 @@ impl Library {
         slug: &ShowSlug,
         episode: &EpisodeRecord,
     ) -> bool {
-        match self.try_download(provider, slug, episode).await {
+        let outcome = match self.try_download(provider, slug, episode).await {
             Ok(()) => {
                 tracing::info!(show = %slug, episode = %episode.id, "episode cached");
-                true
+                None
             }
             Err(err) => {
                 tracing::warn!(show = %slug, episode = %episode.id, error = %err,
                     "episode download failed");
-                if let Err(err) = self
-                    .storage
-                    .mark_failed(slug, &episode.id, err.class())
-                    .await
-                {
+                let class = err.class();
+                if let Err(err) = self.storage.mark_failed(slug, &episode.id, class).await {
                     tracing::error!(show = %slug, episode = %episode.id, error = %err,
                         "could not record download failure");
                 }
-                false
+                Some(class)
             }
-        }
+        };
+        self.emit(ipc::KnownEvent::DownloadFinished {
+            show: slug.clone(),
+            episode: episode.id.clone(),
+            error: outcome,
+        });
+        outcome.is_none()
     }
 
     async fn try_download(
@@ -669,11 +727,10 @@ impl Library {
             .collect();
 
         let mut pruned = 0;
+        let mut bytes_freed = 0_u64;
         for id in retention::plan(policy, &cached) {
-            let file = records
-                .iter()
-                .find(|ep| ep.id == id)
-                .and_then(|ep| ep.file_path.clone());
+            let record = records.iter().find(|ep| ep.id == id);
+            let file = record.and_then(|ep| ep.file_path.clone());
             if let Some(path) = file {
                 match tokio::fs::remove_file(&path).await {
                     Ok(()) => {}
@@ -688,6 +745,14 @@ impl Library {
             self.storage.mark_pruned(slug, &id).await?;
             tracing::info!(show = %slug, episode = %id, "episode pruned by retention");
             pruned += 1;
+            bytes_freed += record.and_then(|ep| ep.bytes).unwrap_or(0);
+        }
+        if pruned > 0 {
+            self.emit(ipc::KnownEvent::Pruned {
+                show: slug.clone(),
+                episodes: pruned,
+                bytes_freed,
+            });
         }
         Ok(pruned)
     }

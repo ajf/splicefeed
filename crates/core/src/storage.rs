@@ -365,17 +365,17 @@ impl Storage {
     /// Record newly listed episodes: unknown ones are inserted as
     /// [`EpisodeState::Discovered`], known ones (any state, including
     /// pruned tombstones) get their provider metadata refreshed and their
-    /// state left alone. Returns how many were new.
+    /// state left alone. Returns the ids that were new.
     pub async fn discover(
         &self,
         show: &ShowSlug,
         episodes: &[EpisodeMeta],
-    ) -> Result<u32, StorageError> {
+    ) -> Result<Vec<EpisodeId>, StorageError> {
         let show = show.clone();
         let episodes = episodes.to_vec();
         self.with(move |conn| {
             let tx = conn.transaction()?;
-            let mut new = 0;
+            let mut new = Vec::new();
             for episode in &episodes {
                 let updated = tx.execute(
                     "UPDATE episodes
@@ -407,7 +407,7 @@ impl Storage {
                             jiff::Timestamp::now().to_string(),
                         ],
                     )?;
-                    new += 1;
+                    new.push(episode.id.clone());
                 }
             }
             tx.commit()?;
@@ -799,8 +799,13 @@ mod tests {
             meta("161", "2026-06-07T18:00:00Z"),
             meta("162", "2026-07-05T18:00:00Z"),
         ];
-        assert_eq!(storage.discover(&slug, &episodes).await.unwrap(), 2);
-        assert_eq!(storage.discover(&slug, &episodes).await.unwrap(), 0);
+        let new = storage.discover(&slug, &episodes).await.unwrap();
+        assert_eq!(
+            new.iter().map(|id| id.as_str()).collect::<Vec<_>>(),
+            ["161", "162"],
+            "new ids reported in listing order"
+        );
+        assert!(storage.discover(&slug, &episodes).await.unwrap().is_empty());
 
         let rows = storage.episodes(&slug).await.unwrap();
         assert_eq!(rows.len(), 2);
@@ -874,7 +879,7 @@ mod tests {
 
         // The next poll lists the same episode again: no new row, state
         // stays pruned.
-        assert_eq!(storage.discover(&slug, &episodes).await.unwrap(), 0);
+        assert!(storage.discover(&slug, &episodes).await.unwrap().is_empty());
         assert_eq!(
             storage.episodes(&slug).await.unwrap()[0].state,
             EpisodeState::Pruned

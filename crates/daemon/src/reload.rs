@@ -58,6 +58,13 @@ fn guard(old: &Config, new: &Config) -> anyhow::Result<()> {
             new.data_dir().display()
         );
     }
+    if old.control_socket_path() != new.control_socket_path() {
+        bail!(
+            "`control_socket` changed ({} -> {}): restart required; reload aborted",
+            old.control_socket_path().display(),
+            new.control_socket_path().display()
+        );
+    }
     Ok(())
 }
 

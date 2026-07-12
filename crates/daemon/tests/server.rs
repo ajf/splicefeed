@@ -116,7 +116,8 @@ async fn served_library(api: &MockServer) -> (String, tempfile::TempDir) {
     let addr = listener.local_addr().expect("bound addr");
     let (_tx, rx) = tokio::sync::watch::channel(library);
     tokio::spawn(async move {
-        axum::serve(listener, server::router(rx))
+        let vitals = splicefeed_daemon::control::Vitals::default();
+        axum::serve(listener, server::router(rx, vitals))
             .await
             .expect("server runs");
     });

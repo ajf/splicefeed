@@ -347,16 +347,16 @@ layering, defaults, and validation, no filesystem involved. `#![deny(missing_doc
    the poll set live; conditional listings with per-show ETags; stale
    `downloading` rows healed at sync start. `--once`, graceful
    shutdown, and SIGHUP reload had shipped earlier.)*
-6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI. (Much
-   of this shipped early: plain-text/JSON `status` reading the database
-   directly (milestone 3), `verify [SLUG] [--fix]` — existence, size,
-   and blake3 of every cached file, re-downloading damage on `--fix` —
-   and a ratatui `status --watch` view (alongside milestone 4) that
-   re-reads the database every 2s: shows table, per-show episode table,
-   poll health. Milestone 6 proper is the control socket: it feeds this
-   same view the daemon's in-process state — in-flight downloads,
-   throughput, live events — which does not exist until the scheduler
-   runs in-daemon.)
+6. **IPC + TUI** — socket protocol, live `splicefeed status` TUI.
+   *(done — NDJSON control socket (0600, stale-file tolerant, removed
+   on shutdown): Hello/Snapshot/Subscribe; the sync engine broadcasts
+   events (poll start/finish, discoveries, download outcomes, pruning,
+   quarantines) through the `Library`, and subscribers survive reloads.
+   `status --watch` connects when a daemon is running — vitals in the
+   header (uptime, http requests), a rolling event log pane, and
+   event-driven table refreshes — and still renders everything from
+   the database when not. Also shipped earlier under this milestone's
+   banner: plain `status`/`--format json`, `verify [SLUG] [--fix]`.)*
 7. **Telemetry** — OTel/OTLP/Prometheus wiring (bridge risk re-checked here).
 8. **Packaging** — systemd unit, Podman quadlet, launchd plist, musl build,
    README (config reference, deployment, "when DI.FM changes their API").
