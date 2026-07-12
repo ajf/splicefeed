@@ -13,13 +13,14 @@ WORKDIR /src
 COPY . .
 RUN cargo build --workspace --release
 
-FROM docker.io/library/debian:bookworm-slim
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 950 --home /data splicefeed
+# distroless/cc — glibc + libgcc + CA certificates, no shell or package
+# manager: ~4x smaller than debian-slim and a far smaller attack surface.
+# glibc 2.36 matches the bookworm build stage; the bundled CA certs cover
+# reqwest/rustls TLS (no apt install needed). The `:nonroot` tag runs as
+# uid 65532. musl/alpine would require the static build we dropped, and
+# there is no shell — debug with `podman logs`, not `exec`.
+FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=build /src/target/release/splicefeed /usr/local/bin/splicefeed
-USER splicefeed
 ENV SPLICEFEED_CONFIG=/etc/splicefeed/config.toml
 EXPOSE 8380
 VOLUME /data
