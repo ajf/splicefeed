@@ -64,3 +64,7 @@ Auth details live in DESIGN.md "DI.FM specifics".
 `just ci` — fmt + clippy `-D warnings` + tests + library-boundary check.
 Crates: `core` (domain/storage/RSS), `providers` (DI.FM), `splicefeed`
 (embeddable facade), `daemon` (the binary).
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE). Copyright 2026 Andrew Forgue.

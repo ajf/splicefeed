@@ -2,6 +2,9 @@
 name = "splicefeed-providers"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 description = "Provider trait, registry, and the DI.FM/AudioAddict implementation for splicefeed"
 
 [dependencies]

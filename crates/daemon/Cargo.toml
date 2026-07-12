@@ -2,6 +2,9 @@
 name = "splicefeed-daemon"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 description = "splicefeed daemon: HTTP server, unix-socket control, status TUI, CLI"
 
 [[bin]]
