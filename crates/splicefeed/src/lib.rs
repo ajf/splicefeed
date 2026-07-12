@@ -306,10 +306,16 @@ impl Library {
         })
     }
 
-    /// Cache the show's artwork to `<data_dir>/artwork/<slug>.<ext>`,
-    /// once. The config override (local path or URL) beats provider
-    /// artwork. Best-effort by design: failure is logged and the feed
-    /// simply omits its `itunes:image` — never fatal to a sync.
+    /// Cache the show's artwork to
+    /// `<data_dir>/artwork/<slug>-<source-hash>.<ext>`. The file name is
+    /// keyed to the artwork *source*, so a changed source (upstream art
+    /// updated, override edited, or a fix to which variant we pick) is
+    /// fetched fresh on the next sync instead of being skipped as
+    /// already-cached; the previously cached file is removed after a
+    /// successful swap. The config override (local path or URL) beats
+    /// provider artwork. Best-effort by design: failure is logged and
+    /// the feed simply omits its `itunes:image` — never fatal to a
+    /// sync.
     async fn cache_artwork(&self, show: &ShowConfig, meta: &ShowMeta, slug: &ShowSlug) {
         enum Source {
             Fetch(Url),
@@ -322,11 +328,6 @@ impl Library {
                 return;
             }
         };
-        if let Some(path) = &existing
-            && tokio::fs::try_exists(path).await.unwrap_or(false)
-        {
-            return;
-        }
         let source = match show.artwork() {
             Some(ArtworkOverride::Url(url)) => Some(Source::Fetch(url.clone())),
             Some(ArtworkOverride::Path(path)) => Some(Source::Copy(path.clone())),
@@ -334,19 +335,33 @@ impl Library {
         };
         let Some(source) = source else { return };
 
-        let ext = match &source {
-            Source::Fetch(url) => url_extension(url).unwrap_or("img").to_owned(),
-            Source::Copy(path) => path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("img")
-                .to_owned(),
+        let (ext, source_key) = match &source {
+            Source::Fetch(url) => (
+                url_extension(url).unwrap_or("img").to_owned(),
+                url.as_str().to_owned(),
+            ),
+            Source::Copy(path) => (
+                path.extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("img")
+                    .to_owned(),
+                path.to_string_lossy().into_owned(),
+            ),
         };
+        let source_hash = &blake3::hash(source_key.as_bytes()).to_hex()[..8];
         let dest = self
             .config
             .data_dir()
             .join("artwork")
-            .join(format!("{slug}.{ext}"));
+            .join(format!("{slug}-{source_hash}.{ext}"));
+        // Same source, file present: nothing to do. Anything else —
+        // never cached, source changed, or file lost — falls through to
+        // a fresh fetch.
+        if existing.as_deref() == Some(dest.as_path())
+            && tokio::fs::try_exists(&dest).await.unwrap_or(false)
+        {
+            return;
+        }
         let fetched = match source {
             Source::Fetch(url) => self
                 .downloader
@@ -383,6 +398,10 @@ impl Library {
                     tracing::warn!(show = %slug, error = %err, "artwork: could not record path");
                 } else {
                     tracing::info!(show = %slug, path = %dest.display(), "artwork cached");
+                    // Drop the superseded file so stale art can't linger.
+                    if let Some(old) = existing.filter(|old| old != &dest) {
+                        tokio::fs::remove_file(&old).await.ok();
+                    }
                 }
             }
             Err(reason) => {

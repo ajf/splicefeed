@@ -10,6 +10,7 @@ splicefeed-providers.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 url.workspace = true
+blake3.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tracing.workspace = true

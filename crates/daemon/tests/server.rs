@@ -157,7 +157,13 @@ async fn feed_endpoint_serves_valid_rss_with_external_urls() {
         "enclosures use the external base URL, never the bind address"
     );
     let icon = parsed.logo.expect("itunes:image");
-    assert_eq!(icon.uri, "http://nas.lan:8380/artwork/test-show.png");
+    assert!(
+        icon.uri
+            .starts_with("http://nas.lan:8380/artwork/test-show-")
+            && icon.uri.ends_with(".png"),
+        "artwork under the external base, source-hashed name: {}",
+        icon.uri
+    );
 }
 
 #[tokio::test]

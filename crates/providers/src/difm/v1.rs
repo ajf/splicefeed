@@ -26,11 +26,19 @@ pub struct Show {
     pub images: Images,
 }
 
-/// Artwork variants on shows and episodes. Other variants (`compact`,
-/// `vertical`, …) exist upstream; declare them if and when needed.
+/// Artwork variants on shows and episodes.
+///
+/// Measured live 2026-07-12 (melodik-revolution): `default` is the same
+/// file as `horizontal_banner` (940×374) — a wide banner, wrong for
+/// podcast apps, which want square art. `compact` is 1400×1400, exactly
+/// Apple's minimum spec. Other variants (`vertical` 1400×2010,
+/// `tall_banner` 1400×637) exist upstream; declare them if ever needed.
 #[derive(Debug, Default, Deserialize)]
 pub struct Images {
-    /// The default/horizontal image — what feeds use.
+    /// Square 1400×1400 — what feeds use when present.
+    pub compact: Option<String>,
+    /// The default image — upstream aliases the *horizontal banner*;
+    /// fallback only.
     pub default: Option<String>,
 }
 
@@ -104,7 +112,14 @@ impl Show {
     /// Convert to domain metadata. `requested` supplies the slug when the
     /// wire object omits or mangles its own.
     pub fn into_meta(self, requested: &ShowSlug) -> ShowMeta {
-        let artwork = self.images.default.as_deref().and_then(normalize_image_url);
+        // Square `compact` beats the banner-shaped `default` (see
+        // [`Images`]): podcast apps scale cover art as a square.
+        let artwork = self
+            .images
+            .compact
+            .as_deref()
+            .or(self.images.default.as_deref())
+            .and_then(normalize_image_url);
         ShowMeta {
             slug: requested.clone(),
             title: self
@@ -241,6 +256,40 @@ mod tests {
         assert_eq!(
             url.as_str(),
             "https://cdn-images.audioaddict.com/4/5/8/8.png"
+        );
+    }
+
+    #[test]
+    fn square_compact_artwork_beats_the_banner_default() {
+        let show = Show {
+            slug: Some("x".into()),
+            name: Some("X".into()),
+            description: None,
+            images: Images {
+                compact: Some("//cdn-images.audioaddict.com/square.png{?size}".into()),
+                default: Some("//cdn-images.audioaddict.com/banner.png{?size}".into()),
+            },
+        };
+        let meta = show.into_meta(&"x".parse().expect("valid slug"));
+        assert_eq!(
+            meta.artwork.expect("has artwork").as_str(),
+            "https://cdn-images.audioaddict.com/square.png"
+        );
+
+        // Without a compact variant, the default still serves.
+        let show = Show {
+            slug: Some("x".into()),
+            name: Some("X".into()),
+            description: None,
+            images: Images {
+                compact: None,
+                default: Some("//cdn-images.audioaddict.com/banner.png{?size}".into()),
+            },
+        };
+        let meta = show.into_meta(&"x".parse().expect("valid slug"));
+        assert_eq!(
+            meta.artwork.expect("has artwork").as_str(),
+            "https://cdn-images.audioaddict.com/banner.png"
         );
     }
 

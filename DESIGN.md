@@ -121,6 +121,12 @@ tests):
 - `GET shows/<slug>` — show metadata, **no auth required**. Image URLs are
   protocol-relative RFC 6570 templates
   (`//cdn-images…/x.png{?size,height,…}`) — template stripped, https forced.
+  Variants measured live 2026-07-12: `images.default` aliases the
+  *horizontal banner* (940×374) — wrong shape for podcast cover art;
+  `images.compact` is the 1400×1400 square (Apple's minimum spec) and is
+  what feeds use, `default` as fallback. Cached artwork file names are
+  keyed to the source URL so a variant/upstream change refetches instead
+  of skipping as already-cached.
 - `GET shows/<slug>/episodes?page=N&per_page=M` — newest first; pagination
   via RFC 5988 `Link` headers (`rel="next"/"last"`). No auth required.
   `tracks[0].length` is the duration in seconds; `start_at` is RFC 3339
