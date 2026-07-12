@@ -1,0 +1,25 @@
+# All the actual checks live in the justfile (`just ci` = fmt + clippy +
+# tests + library-boundary check). This workflow only sets up the
+# environment and runs it, so CI and a local `just ci` stay identical.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@just
+      - uses: Swatinem/rust-cache@v2
+      - run: just ci
