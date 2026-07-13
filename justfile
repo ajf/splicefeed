@@ -29,6 +29,11 @@ check-boundary:
     fi
     echo "boundary OK: no banned crates in the library tree"
 
+# Regenerate THIRD-PARTY-LICENSES.md from the dependency tree. Run after
+# changing dependencies. Needs: cargo install cargo-about --features cli
+licenses:
+    cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md
+
 # Release build for the host platform (single self-contained binary).
 release:
     cargo build --workspace --release

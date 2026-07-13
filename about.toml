@@ -1,0 +1,31 @@
+# cargo-about config for generating THIRD-PARTY-LICENSES.md (`just licenses`).
+#
+# `accepted` lists the licenses this project is willing to redistribute
+# under. For crates offered under several licenses (`A OR B`), cargo-about
+# picks the first accepted one — so LGPL is intentionally absent, forcing
+# the permissive option (e.g. r-efi resolves to MIT/Apache, not LGPL).
+# colored is MPL-2.0-only, so MPL-2.0 must be accepted.
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "WTFPL",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CDLA-Permissive-2.0",
+]
+
+# Our own workspace crates (Apache-2.0) don't need bundling here.
+[splicefeed]
+[splicefeed-core]
+[splicefeed-providers]
+[splicefeed-daemon]

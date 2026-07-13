@@ -21,6 +21,8 @@ RUN cargo build --workspace --release
 # there is no shell — debug with `podman logs`, not `exec`.
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=build /src/target/release/splicefeed /usr/local/bin/splicefeed
+# Ship license notices with the binary (Apache-2.0 §4 attribution).
+COPY LICENSE THIRD-PARTY-LICENSES.md /usr/share/doc/splicefeed/
 ENV SPLICEFEED_CONFIG=/etc/splicefeed/config.toml
 EXPOSE 8380
 VOLUME /data
